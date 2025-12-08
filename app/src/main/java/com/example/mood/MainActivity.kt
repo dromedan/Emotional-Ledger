@@ -27,6 +27,14 @@ import androidx.compose.material.icons.filled.MenuBook
 // For date formatting
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import com.example.mood.AddEntrySheet
+import com.example.mood.model.LedgerEntry
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+
 
 // For sp in TextStyle.copy()
 import androidx.compose.ui.unit.sp
@@ -240,18 +248,29 @@ fun TodayScreen() {
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // BUTTON
+            var showSheet by remember { mutableStateOf(false) }
+
             Button(
-                onClick = { },
+                onClick = { showSheet = true },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
                 shape = RoundedCornerShape(24.dp)
             ) {
                 Text(
-                    "+ Add Event",
+                    "+ Add Entry",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White
+                )
+            }
+
+            if (showSheet) {
+                AddEntrySheet(
+                    onSave = { entry ->
+                        // TODO: add to ViewModel later
+                        showSheet = false
+                    },
+                    onDismiss = { showSheet = false }
                 )
             }
         }
