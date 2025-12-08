@@ -22,6 +22,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.imePadding
 
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+
+
 
 
 
@@ -33,148 +41,255 @@ fun AddEntrySheet(
 ) {
     var delta by remember { mutableStateOf(0f) }
     var tagsText by remember { mutableStateOf("") }
+    var tags by remember { mutableStateOf(listOf<String>()) }
+
     var note by remember { mutableStateOf("") }
+
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // 👉 EXPAND SHEET ON OPEN
+    LaunchedEffect(Unit) {
+        sheetState.show()
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = DeepNavyCharcoal.copy(alpha = 0.92f),
-        tonalElevation = 0.dp,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {
+        SheetContent(
+            delta = delta,
+            onDeltaChange = { delta = it },
+            tags = tags,
+            onTagsChange = { tags = it },
+            tagsText = tagsText,
+            onTagsTextChange = { tagsText = it },
+            note = note,
+            onNoteChange = { note = it },
+            onSave = onSave
+        )
 
-        Column(
+    }
+}
+@Composable
+fun SheetContent(
+    delta: Float,
+    onDeltaChange: (Float) -> Unit,
+
+    tags: List<String>,
+    onTagsChange: (List<String>) -> Unit,
+
+    tagsText: String,
+    onTagsTextChange: (String) -> Unit,
+
+    note: String,
+    onNoteChange: (String) -> Unit,
+
+    onSave: (LedgerEntry) -> Unit
+)
+ {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .navigationBarsPadding()
+            .imePadding()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        DeepNavyCharcoal,
+                        Color(0xFF0C141A)
+                    )
+                )
+            )
+            .padding(22.dp)
+    ) {
+
+        // --- HEADER ---
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.MenuBook,
+                contentDescription = null,
+                tint = LedgerGold,
+                modifier = Modifier.size(26.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "New Entry",
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    color = Color.White,
+                    fontSize = 22.sp
+                )
+            )
+        }
+
+        Spacer(Modifier.height(28.dp))
+
+        // --- DELTA ---
+        Text("Adjustment (Delta)", color = Color(0xFFAEC7D2), fontSize = 14.sp)
+        Spacer(Modifier.height(6.dp))
+        Text(String.format("%.2f", delta), color = Color.White, fontSize = 18.sp)
+
+        Slider(
+            value = delta,
+            onValueChange = onDeltaChange,
+            valueRange = -5f..5f,
+            steps = 40,
+            colors = SliderDefaults.colors(
+                thumbColor = LedgerTeal,
+                activeTrackColor = LedgerTeal,
+                inactiveTrackColor = Color(0xFF1B3845)
+            )
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        // --- TAG INPUT ---
+        Text("Tags", color = Color(0xFFAEC7D2), fontSize = 14.sp)
+        OutlinedTextField(
+            value = tagsText,
+            onValueChange = { input ->
+                if (input.endsWith(",")) {
+                    val newTag = input.dropLast(1).trim()
+                    if (newTag.isNotEmpty()) {
+                        onTagsChange(tags + newTag)
+                    }
+                    onTagsTextChange("")
+                } else {
+                    onTagsTextChange(input)
+                }
+            },
+            placeholder = { Text("e.g. dream, David, phone call…") },
+            textStyle = LocalTextStyle.current.copy(color = Color.White),
+
+            singleLine = true,                     // 👈 ADD THIS
+
+            keyboardOptions = KeyboardOptions.Default.copy(
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    val newTag = tagsText.trim()
+                    if (newTag.isNotEmpty()) {
+                        onTagsChange(tags + newTag)
+                    }
+                    onTagsTextChange("")
+                }
+            ),
+
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = LedgerTeal,
+                unfocusedBorderColor = Color(0xFF31505C),
+                cursorColor = LedgerTeal
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+
+
+        Spacer(Modifier.height(24.dp))
+
+        // --- NOTES ---
+        Text("Notes", color = Color(0xFFAEC7D2), fontSize = 14.sp)
+        OutlinedTextField(
+            value = note,
+            onValueChange = onNoteChange,
+            minLines = 4,
+            maxLines = 8,
+            placeholder = { Text("Describe what happened…") },
+            textStyle = LocalTextStyle.current.copy(color = Color.White),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = LedgerTeal,
+                unfocusedBorderColor = Color(0xFF31505C),
+                cursorColor = LedgerTeal
+            ),
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .imePadding()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            DeepNavyCharcoal,
-                            Color(0xFF0C141A)
-                        )
-                    )
-                )
-                .padding(22.dp)
-        ) {
+                .heightIn(min = 120.dp)
+        )
+        Spacer(Modifier.height(12.dp))
 
-            // HEADER
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.MenuBook,
-                    contentDescription = null,
-                    tint = LedgerGold,
-                    modifier = Modifier.size(26.dp)
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    text = "New Entry",
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                        color = Color.White,
-                        fontSize = 22.sp
-                    )
+        @OptIn(ExperimentalLayoutApi::class)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            tags.forEach { tag ->
+                TagChip(
+                    label = tag,
+                    onRemove = { onTagsChange(tags - tag) }
                 )
             }
+        }
 
-            Spacer(Modifier.height(28.dp))
 
-            // DELTA SLIDER
-            Text(
-                "Adjustment (Delta)",
-                color = Color(0xFFAEC7D2),
-                fontSize = 14.sp
-            )
 
-            Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(30.dp))
 
-            Text(
-                text = String.format("%.2f", delta),
-                color = Color.White,
-                fontSize = 18.sp
-            )
-
-            Slider(
-                value = delta,
-                onValueChange = { delta = it },
-                valueRange = -5f..5f,
-                steps = 40,
-                colors = SliderDefaults.colors(
-                    thumbColor = LedgerTeal,
-                    activeTrackColor = LedgerTeal,
-                    inactiveTrackColor = Color(0xFF1B3845)
+        // --- SAVE BUTTON ---
+        Button(
+            onClick = {
+                val entry = LedgerEntry(
+                    id = UUID.randomUUID().mostSignificantBits,
+                    timestamp = System.currentTimeMillis(),
+                    delta = delta,
+                    tags = tags,
+                    note = note
                 )
-            )
 
-            Spacer(Modifier.height(24.dp))
 
-            // TAG INPUT
-            Text("Tags", color = Color(0xFFAEC7D2), fontSize = 14.sp)
-
-            OutlinedTextField(
-                value = tagsText,
-                onValueChange = { tagsText = it },
-                placeholder = { Text("e.g. dream, David, phone call…") },
-                textStyle = LocalTextStyle.current.copy(color = Color.White),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = LedgerTeal,
-                    unfocusedBorderColor = Color(0xFF31505C),
-                    cursorColor = LedgerTeal
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(Modifier.height(24.dp))
-
-            // NOTES
-            Text("Notes", color = Color(0xFFAEC7D2), fontSize = 14.sp)
-
-            OutlinedTextField(
-                value = note,
-                onValueChange = { note = it },
-                minLines = 4,
-                maxLines = 8,
-                placeholder = { Text("Describe what happened…") },
-                textStyle = LocalTextStyle.current.copy(color = Color.White),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = LedgerTeal,
-                    unfocusedBorderColor = Color(0xFF31505C),
-                    cursorColor = LedgerTeal
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 120.dp)
-            )
-
-            Spacer(Modifier.height(30.dp))
-
-            // SAVE BUTTON
-            Button(
-                onClick = {
-                    val tags = tagsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-
-                    val entry = LedgerEntry(
+                onSave(
+                    LedgerEntry(
                         id = UUID.randomUUID().mostSignificantBits,
                         timestamp = System.currentTimeMillis(),
                         delta = delta,
                         tags = tags,
                         note = note
                     )
-                    onSave(entry)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(18.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = LedgerTeal,
-                    contentColor = Color.Black
                 )
-            ) {
-                Text("Save Entry", fontSize = 17.sp)
-            }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = LedgerTeal,
+                contentColor = Color.Black
+            )
+        ) {
+            Text("Save Entry", fontSize = 17.sp)
+        }
 
-            Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(14.dp))
+    }
+}
+@Composable
+fun TagChip(label: String, onRemove: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(
+                color = LedgerTeal.copy(alpha = 0.18f),
+                shape = RoundedCornerShape(50)
+            )
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.width(8.dp))
+        IconButton(
+            onClick = onRemove,
+            modifier = Modifier.size(18.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Remove tag",
+                tint = LedgerTeal
+            )
         }
     }
 }
+

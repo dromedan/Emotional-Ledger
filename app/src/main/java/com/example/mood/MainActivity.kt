@@ -267,12 +267,12 @@ fun TodayScreen() {
             if (showSheet) {
                 AddEntrySheet(
                     onSave = { entry ->
-                        // TODO: add to ViewModel later
                         showSheet = false
                     },
                     onDismiss = { showSheet = false }
                 )
             }
+
         }
     }
 }
