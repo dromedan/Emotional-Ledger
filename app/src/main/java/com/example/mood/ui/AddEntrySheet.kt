@@ -21,13 +21,27 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.imePadding
-
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+
 
 
 
@@ -46,6 +60,27 @@ fun AddEntrySheet(
     var note by remember { mutableStateOf("") }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var title by remember { mutableStateOf("") }
+    val feelingOptions = listOf(
+        "Excited",
+        "Happy",
+        "Content",
+        "Embarrassed",
+        "Frustrated",
+        "Overwhelmed",
+        "Sad",
+        "Angry",
+        "Anxious",
+        "Hopeful"
+    )
+
+    val pastTags = listOf(
+        "love", "Jeremy", "phone call", "smile", "anxiety", "dream", "work", "family"
+    )
+
+    var feeling by remember { mutableStateOf("") }
+    var feelingsExpanded by remember { mutableStateOf(false) }
+
 
     // 👉 EXPAND SHEET ON OPEN
     LaunchedEffect(Unit) {
@@ -61,21 +96,47 @@ fun AddEntrySheet(
         SheetContent(
             delta = delta,
             onDeltaChange = { delta = it },
+
+            title = title,
+            onTitleChange = { title = it },
+
+            feeling = feeling,
+            onFeelingChange = { feeling = it },
+            feelingOptions = feelingOptions,
+            feelingsExpanded = feelingsExpanded,
+            onFeelingsExpandedChange = { feelingsExpanded = it },
+
             tags = tags,
             onTagsChange = { tags = it },
+
             tagsText = tagsText,
             onTagsTextChange = { tagsText = it },
+
             note = note,
             onNoteChange = { note = it },
+
+            pastTags = pastTags,
+
             onSave = onSave
         )
 
+
     }
 }
+
 @Composable
 fun SheetContent(
     delta: Float,
     onDeltaChange: (Float) -> Unit,
+
+    title: String,
+    onTitleChange: (String) -> Unit,
+
+    feeling: String,
+    onFeelingChange: (String) -> Unit,
+    feelingOptions: List<String>,
+    feelingsExpanded: Boolean,
+    onFeelingsExpandedChange: (Boolean) -> Unit,
 
     tags: List<String>,
     onTagsChange: (List<String>) -> Unit,
@@ -83,11 +144,14 @@ fun SheetContent(
     tagsText: String,
     onTagsTextChange: (String) -> Unit,
 
+    pastTags: List<String>,
+
     note: String,
     onNoteChange: (String) -> Unit,
 
     onSave: (LedgerEntry) -> Unit
 )
+
  {
     Column(
         modifier = Modifier
@@ -145,46 +209,108 @@ fun SheetContent(
 
         Spacer(Modifier.height(24.dp))
 
-        // --- TAG INPUT ---
-        Text("Tags", color = Color(0xFFAEC7D2), fontSize = 14.sp)
+        // --- TITLE ---
+        Text("Title", color = Color(0xFFAEC7D2), fontSize = 14.sp)
         OutlinedTextField(
-            value = tagsText,
-            onValueChange = { input ->
-                if (input.endsWith(",")) {
-                    val newTag = input.dropLast(1).trim()
-                    if (newTag.isNotEmpty()) {
-                        onTagsChange(tags + newTag)
-                    }
-                    onTagsTextChange("")
-                } else {
-                    onTagsTextChange(input)
-                }
-            },
-            placeholder = { Text("e.g. dream, David, phone call…") },
+            value = title,
+            onValueChange = onTitleChange,
+            singleLine = true,
+            placeholder = { Text("e.g. David’s Phone Call") },
             textStyle = LocalTextStyle.current.copy(color = Color.White),
-
-            singleLine = true,                     // 👈 ADD THIS
-
-            keyboardOptions = KeyboardOptions.Default.copy(
-                imeAction = ImeAction.Done
-            ),
-            keyboardActions = KeyboardActions(
-                onDone = {
-                    val newTag = tagsText.trim()
-                    if (newTag.isNotEmpty()) {
-                        onTagsChange(tags + newTag)
-                    }
-                    onTagsTextChange("")
-                }
-            ),
-
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = LedgerTeal,
                 unfocusedBorderColor = Color(0xFF31505C),
                 cursorColor = LedgerTeal
             ),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
         )
+
+        Spacer(Modifier.height(24.dp))
+
+
+
+        Text("Feeling", color = Color(0xFFAEC7D2), fontSize = 14.sp)
+
+        Box(modifier = Modifier.fillMaxWidth()) {
+
+            OutlinedTextField(
+                value = feeling,
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                trailingIcon = {
+                    Icon(
+                        imageVector = if (feelingsExpanded)
+                            Icons.Default.KeyboardArrowUp
+                        else Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = LedgerTeal
+                    )
+                },
+                placeholder = { Text("Select a feeling…") },
+                textStyle = LocalTextStyle.current.copy(color = Color.White),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = LedgerTeal,
+                    unfocusedBorderColor = Color(0xFF31505C),
+                    cursorColor = LedgerTeal
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // 👉 Transparent overlay that catches taps
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable { onFeelingsExpandedChange(!feelingsExpanded) }
+            )
+        }
+
+        DropdownMenu(
+            expanded = feelingsExpanded,
+            onDismissRequest = { onFeelingsExpandedChange(false) }
+        ) {
+            feelingOptions.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option) },
+                    onClick = {
+                        onFeelingChange(option)
+                        onFeelingsExpandedChange(false)
+                    }
+                )
+            }
+        }
+
+
+
+        Spacer(Modifier.height(24.dp))
+
+
+        // --- TAG INPUT ---
+
+        Text("Tags", color = Color(0xFFAEC7D2), fontSize = 14.sp)
+
+        TagInputField(
+            tags = tags,
+            onTagsChange = onTagsChange,
+            text = tagsText,
+            onTextChange = onTagsTextChange
+        )
+
+        AutocompleteTagSuggestions(
+            query = tagsText,
+            selectedTags = tags,
+            pastTags = pastTags,
+            onTagSelected = { selected ->
+                onTagsChange(tags + selected)
+                onTagsTextChange("")
+            }
+        )
+
+
+
+        Spacer(Modifier.height(24.dp))
+
 
 
 
@@ -208,20 +334,6 @@ fun SheetContent(
                 .fillMaxWidth()
                 .heightIn(min = 120.dp)
         )
-        Spacer(Modifier.height(12.dp))
-
-        @OptIn(ExperimentalLayoutApi::class)
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            tags.forEach { tag ->
-                TagChip(
-                    label = tag,
-                    onRemove = { onTagsChange(tags - tag) }
-                )
-            }
-        }
-
 
 
         Spacer(Modifier.height(30.dp))
@@ -234,8 +346,11 @@ fun SheetContent(
                     timestamp = System.currentTimeMillis(),
                     delta = delta,
                     tags = tags,
-                    note = note
-                )
+                    note = note,
+                    title = title,
+                    feeling = feeling,
+
+                    )
 
 
                 onSave(
@@ -244,7 +359,9 @@ fun SheetContent(
                         timestamp = System.currentTimeMillis(),
                         delta = delta,
                         tags = tags,
-                        note = note
+                        note = note,
+                        title = title,
+                        feeling = feeling
                     )
                 )
             },
@@ -289,6 +406,125 @@ fun TagChip(label: String, onRemove: () -> Unit) {
                 contentDescription = "Remove tag",
                 tint = LedgerTeal
             )
+        }
+    }
+}
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun TagInputField(
+    tags: List<String>,
+    onTagsChange: (List<String>) -> Unit,
+    text: String,
+    onTextChange: (String) -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, LedgerTeal),
+        color = Color.Transparent,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp)
+    ) {
+
+        Row(
+            modifier = Modifier
+                .padding(8.dp)
+                .wrapContentHeight()
+                .fillMaxWidth()
+                .background(Color.Transparent)
+        ) {
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+
+                // Existing tag chips
+                tags.forEach { tag ->
+                    TagChip(
+                        label = tag,
+                        onRemove = { onTagsChange(tags - tag) }
+                    )
+                }
+
+                // The actual tag text input field
+                BasicTextField(
+                    value = text,
+                    onValueChange = { input ->
+                        when {
+                            input.endsWith(",") -> {
+                                val newTag = input.dropLast(1).trim()
+                                if (newTag.isNotEmpty()) onTagsChange(tags + newTag)
+                                onTextChange("")
+                            }
+                            else -> onTextChange(input)
+                        }
+                    },
+                    singleLine = true,
+                    cursorBrush = SolidColor(LedgerTeal),
+                    textStyle = LocalTextStyle.current.copy(color = Color.White),
+                    keyboardOptions = KeyboardOptions.Default.copy(
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            val newTag = text.trim()
+                            if (newTag.isNotEmpty()) onTagsChange(tags + newTag)
+                            onTextChange("")
+                        }
+                    ),
+                    modifier = Modifier
+                        .padding(start = 4.dp)
+                        .weight(1f, false)
+                )
+            }
+        }
+    }
+}
+
+
+@Composable
+fun AutocompleteTagSuggestions(
+    query: String,
+    selectedTags: List<String>,
+    pastTags: List<String>,
+    onTagSelected: (String) -> Unit
+) {
+    if (query.isBlank()) return
+
+    val filtered = pastTags
+        .filter { t ->
+            t.contains(query, ignoreCase = true) &&
+                    t !in selectedTags
+        }
+        .take(5) // limit suggestions
+
+    if (filtered.isEmpty()) return
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, top = 4.dp)
+            .background(
+                color = Color(0xFF0F1A24),
+                shape = RoundedCornerShape(8.dp)
+            )
+            .border(
+                width = 1.dp,
+                color = LedgerTeal.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(8.dp)
+            )
+    ) {
+        filtered.forEach { tag ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onTagSelected(tag) }
+                    .padding(10.dp)
+            ) {
+                Text(tag, color = Color.White, fontSize = 14.sp)
+            }
         }
     }
 }

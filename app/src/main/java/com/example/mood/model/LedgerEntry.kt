@@ -5,5 +5,7 @@ data class LedgerEntry(
     val timestamp: Long,
     val delta: Float,
     val tags: List<String>,
-    val note: String
+    val note: String,
+    val title: String,
+    val feeling: String
 )
