@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     // ✅ Compose compiler plugin; version is supplied by the root build script (2.0.21)
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.23"
 }
 
 android {
@@ -66,6 +67,9 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+
 
     // Material 3
     implementation("androidx.compose.material3:material3")

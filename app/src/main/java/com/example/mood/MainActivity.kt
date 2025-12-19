@@ -31,9 +31,16 @@ import com.example.mood.AddEntrySheet
 import com.example.mood.model.LedgerEntry
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import com.example.mood.data.LedgerStore
+import androidx.compose.foundation.ExperimentalFoundationApi
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.combinedClickable
 
 
 // For sp in TextStyle.copy()
@@ -63,216 +70,239 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+fun deltaColor(delta: Float): Color {
+    if (delta == 0f) {
+        return Color.White.copy(alpha = 0.45f)
+    }
+
+    val maxDelta = 2f
+    val intensity = (kotlin.math.abs(delta) / maxDelta)
+        .coerceIn(0.15f, 1f)
+
+    val baseColor = if (delta > 0f) {
+        Color(0xFF4CAF50) // green
+    } else {
+        Color(0xFFE57373) // red
+    }
+
+    return baseColor.copy(
+        alpha = 0.35f + (0.65f * intensity)
+    )
+}
+
+
+
+
+fun deltaLabel(delta: Float): String =
+    when {
+        delta > 0f -> "▲ %.2f".format(delta)
+        delta < 0f -> "▼ %.2f".format(kotlin.math.abs(delta))
+        else -> "— 0.00"
+    }
 
 @Composable
 fun TodayScreen() {
-    val baseline = 5.00
-    val eventTotal = 0.00
-    val drift = 0.00
+    var entries by remember { mutableStateOf(listOf<LedgerEntry>()) }
+    var showSheet by remember { mutableStateOf(false) }
+    var entryBeingEdited by remember { mutableStateOf<LedgerEntry?>(null) }
+
+    val baseline = 5.00f
+    val drift = 0.00f
+    val eventTotal = entries.sumOf { it.delta.toDouble() }.toFloat()
     val finalScore = baseline + eventTotal + drift
-    val today = java.time.LocalDate.now()
-    val formattedDate = today.format(
-        java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d")
-    )
-    val gradient = Brush.verticalGradient(
-        colors = listOf(
-            Color(0xFF0F1A24), // top
-            Color(0xFF0E1820), // mid
-            Color(0xFF0C141A)  // bottom
-        )
-    )
 
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
-    Box(
+    LaunchedEffect(Unit) {
+        entries = LedgerStore.loadEntries(context)
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(gradient)
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // MICROGRID
-        Canvas(modifier = Modifier.fillMaxSize()) {
 
-            val gridColor = Color.White.copy(alpha = 0.03f)
-            val step = 16.dp.toPx()
+        // HEADER
+        Text(
+            text = "Today – Emotional Ledger",
+            style = MaterialTheme.typography.headlineMedium,
+            color = Color.White
+        )
 
-            // Vertical lines
-            var x = 0f
-            while (x < size.width) {
-                drawLine(
-                    color = gridColor,
-                    start = Offset(x, 0f),
-                    end = Offset(x, size.height),
-                    strokeWidth = 1.dp.toPx()
-                )
-                x += step
-            }
+        // METRICS
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Metric("Baseline", baseline)
+            Metric("Events", eventTotal)
+            Metric("Drift", drift)
+        }
 
-            // Horizontal lines
-            var y = 0f
-            while (y < size.height) {
-                drawLine(
-                    color = gridColor,
-                    start = Offset(0f, y),
-                    end = Offset(size.width, y),
-                    strokeWidth = 1.dp.toPx()
-                )
-                y += step
+        HorizontalDivider(color = Color.White.copy(alpha = 0.2f))
+
+        // ENTRIES
+        entries.forEachIndexed { index, entry ->
+            LedgerEntryRow(
+                entry = entry,
+                onEdit = {
+                    entryBeingEdited = it
+                    showSheet = true
+                },
+                onDelete = { toDelete ->
+                    val updated = entries.filterNot { it.id == toDelete.id }
+                    entries = updated
+
+                    coroutineScope.launch {
+                        LedgerStore.saveEntries(context, updated)
+                    }
+                }
+            )
+
+            if (index < entries.lastIndex) {
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
             }
         }
-        // VIGNETTE OVERLAY
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-        ) {
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        Color.Black.copy(alpha = 0.25f)  // soften edges
-                    ),
-                    center = Offset(size.width / 2f, size.height / 2f),
-                    radius = size.maxDimension * 0.9f
-                ),
-                size = size
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        // FINAL SCORE
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Final mood",
+                style = MaterialTheme.typography.headlineSmall,
+                color = Color.White
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "%.2f / 10.00".format(finalScore),
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White
             )
         }
 
-        Column(
+        // ADD BUTTON
+        Button(
+            onClick = {
+                entryBeingEdited = null
+                showSheet = true
+            },
             modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(24.dp)
         ) {
+            Text("+ Add Entry")
+        }
+    }
 
-// HEADER
-            Column(
-                modifier = Modifier.padding(bottom = 8.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.MenuBook,
-                        contentDescription = "Ledger",
-                        tint = LedgerGold,
-                        modifier = Modifier.size(24.dp)
-                    )
+    // BOTTOM SHEET
+    if (showSheet) {
+        AddEntrySheet(
+            existingEntry = entryBeingEdited,
+            onSave = { savedEntry ->
+                val updated = entries
+                    .filterNot { it.id == savedEntry.id } + savedEntry
 
-                    Spacer(modifier = Modifier.width(10.dp))
+                entries = updated.sortedBy { it.timestamp }
 
-                    Text(
-                        text = "Today – Emotional Ledger",
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            letterSpacing = 0.6.sp
-                        ),
-                        color = Color.White
-                    )
+                coroutineScope.launch {
+                    LedgerStore.saveEntries(context, entries)
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = formattedDate,
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        fontSize = 15.sp,
-                        letterSpacing = 0.2.sp
-                    )
-                )
+                entryBeingEdited = null
+                showSheet = false
+            },
+            onDismiss = {
+                entryBeingEdited = null
+                showSheet = false
             }
+        )
+    }
+}
 
+@Composable
+private fun Metric(label: String, value: Float) {
+    Column {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = Color.White.copy(alpha = 0.65f)
+        )
+        Text(
+            text = "%.2f".format(value),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White
+        )
+    }
+}
 
-            // METRICS ROW
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(
-                        "Baseline",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                    )
-                    Text(
-                        "%.2f".format(baseline),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White
-                    )
-                }
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun LedgerEntryRow(
+    entry: LedgerEntry,
+    onEdit: (LedgerEntry) -> Unit,
+    onDelete: (LedgerEntry) -> Unit
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    val color = deltaColor(entry.delta)
+    val impactColor = color
 
-                Column {
-                    Text(
-                        "Events",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                    )
-                    Text(
-                        "%.2f".format(eventTotal),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White
-                    )
-                }
-
-                Column {
-                    Text(
-                        "Drift",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                    )
-                    Text(
-                        "%.2f".format(drift),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White
-                    )
-                }
-            }
-
-            HorizontalDivider(
-                modifier = Modifier.padding(vertical = 8.dp),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = {},
+                onLongClick = { menuExpanded = true }
             )
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
 
-            // FINAL MOOD ROW
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Final mood",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = "%.2f / 10.00".format(finalScore),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White
-                )
-            }
+        // Title
+        Text(
+            text = entry.title.ifBlank { "Untitled" },
+            color = impactColor.copy(alpha = impactColor.alpha * 0.85f),
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f)
+        )
 
-            Spacer(modifier = Modifier.weight(1f))
 
-            var showSheet by remember { mutableStateOf(false) }
+        // Category / Feeling
+        Text(
+            text = entry.feeling,
+            color = Color.White.copy(alpha = 0.7f),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
 
-            Button(
-                onClick = { showSheet = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Text(
-                    "+ Add Entry",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White
-                )
-            }
-
-            if (showSheet) {
-                AddEntrySheet(
-                    onSave = { entry ->
-                        showSheet = false
-                    },
-                    onDismiss = { showSheet = false }
-                )
-            }
-
+        // Delta
+        Text(
+            text = deltaLabel(entry.delta),
+            color = color,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { menuExpanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Edit") },
+                onClick = {
+                    menuExpanded = false
+                    onEdit(entry)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Delete") },
+                onClick = {
+                    menuExpanded = false
+                    onDelete(entry)
+                }
+            )
         }
     }
 }

@@ -1,5 +1,9 @@
 package com.example.mood.model
 
+
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class LedgerEntry(
     val id: Long,
     val timestamp: Long,
