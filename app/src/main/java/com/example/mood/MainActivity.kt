@@ -16,18 +16,10 @@ import androidx.compose.material3.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.background
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.foundation.Canvas
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.material.icons.filled.MenuBook
+
 // For date formatting
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import com.example.mood.AddEntrySheet
+
 import com.example.mood.model.LedgerEntry
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,21 +27,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import com.example.mood.data.LedgerStore
 import androidx.compose.foundation.ExperimentalFoundationApi
-
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.combinedClickable
-
-
-// For sp in TextStyle.copy()
-import androidx.compose.ui.unit.sp
-
-// For LedgerGold color from your theme
-import com.example.mood.ui.theme.LedgerGold
-
-
+import androidx.compose.ui.text.font.FontWeight
 
 
 
@@ -70,25 +54,47 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-fun deltaColor(delta: Float): Color {
-    if (delta == 0f) {
-        return Color.White.copy(alpha = 0.45f)
+fun feelingEmoji(feeling: String): String =
+    when (feeling.lowercase()) {
+        "excited"     -> "🤩"
+        "happy"       -> "🙂"
+        "content"     -> "😌"
+        "hopeful"     -> "🌱"
+
+        "anxious"     -> "😰"
+        "overwhelmed" -> "😵‍💫"
+        "sad"         -> "😞"
+        "angry"       -> "😠"
+        "embarrassed" -> "😳"
+
+        else -> "•"   // neutral fallback
     }
 
-    val maxDelta = 2f
-    val intensity = (kotlin.math.abs(delta) / maxDelta)
-        .coerceIn(0.15f, 1f)
+fun deltaColor(delta: Float): Color {
+    val clamped = delta.coerceIn(-2f, 2f)
+    val t = kotlin.math.abs(clamped) / 2f
 
-    val baseColor = if (delta > 0f) {
+    if (clamped == 0f) {
+        return Color.White
+    }
+
+    val target = if (clamped > 0f) {
         Color(0xFF4CAF50) // green
     } else {
         Color(0xFFE57373) // red
     }
 
-    return baseColor.copy(
-        alpha = 0.35f + (0.65f * intensity)
+    return Color(
+        red   = lerp(1f, target.red,   t),
+        green = lerp(1f, target.green, t),
+        blue  = lerp(1f, target.blue,  t),
+        alpha = 1f
     )
 }
+
+private fun lerp(start: Float, end: Float, t: Float): Float =
+    start + (end - start) * t
+
 
 
 
@@ -128,9 +134,14 @@ fun TodayScreen() {
         // HEADER
         Text(
             text = "Today – Emotional Ledger",
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.headlineMedium.copy(
+                fontWeight = FontWeight.Medium,   // was SemiBold
+                letterSpacing = 0.sp,             // remove display spacing
+                fontSize = 24.sp                  // down from 26
+            ),
             color = Color.White
         )
+
 
         // METRICS
         Row(
@@ -265,19 +276,28 @@ fun LedgerEntryRow(
         // Title
         Text(
             text = entry.title.ifBlank { "Untitled" },
-            color = impactColor.copy(alpha = impactColor.alpha * 0.85f),
-            style = MaterialTheme.typography.bodyLarge,
+            color = impactColor,
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontSize = 18.sp,          // up from 16
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.3.sp
+            ),
             modifier = Modifier.weight(1f)
         )
 
 
         // Category / Feeling
-        Text(
-            text = entry.feeling,
-            color = Color.White.copy(alpha = 0.7f),
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = 8.dp)
-        )
+        Box(
+            modifier = Modifier
+                .width(36.dp),        // fixed column width
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = feelingEmoji(entry.feeling),
+                fontSize = 20.sp
+            )
+        }
+
 
         // Delta
         Text(
