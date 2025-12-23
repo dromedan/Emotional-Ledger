@@ -35,6 +35,30 @@ import kotlinx.coroutines.launch
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.text.font.FontWeight
 
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+
+import com.example.mood.ui.theme.LedgerTeal
+import com.example.mood.ui.theme.LedgerGold
+import com.example.mood.util.snapToQuarter
+import com.example.mood.ui.DailyReflectionSheet
+import com.example.mood.model.DailyReflection
+import com.example.mood.util.todayKey
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.text.style.TextAlign
+
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.filled.CalendarMonth
+
+
 
 
 class MainActivity : ComponentActivity() {
@@ -95,7 +119,8 @@ fun deltaColor(delta: Float): Color {
 private fun lerp(start: Float, end: Float, t: Float): Float =
     start + (end - start) * t
 
-
+private val todayFormatter =
+    DateTimeFormatter.ofPattern("EEEE, MMM dd")
 
 
 
@@ -105,23 +130,71 @@ fun deltaLabel(delta: Float): String =
         delta < 0f -> "▼ %.2f".format(kotlin.math.abs(delta))
         else -> "— 0.00"
     }
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodayScreen() {
     var entries by remember { mutableStateOf(listOf<LedgerEntry>()) }
     var showSheet by remember { mutableStateOf(false) }
     var entryBeingEdited by remember { mutableStateOf<LedgerEntry?>(null) }
 
-    val baseline = 5.00f
-    val drift = 0.00f
-    val eventTotal = entries.sumOf { it.delta.toDouble() }.toFloat()
-    val finalScore = baseline + eventTotal + drift
+    var reflectionText by remember { mutableStateOf("") }
 
+    var activeDayKey by remember { mutableStateOf(todayKey()) }
+
+    val baseline = 5.00f
+    var reflectionScore by remember { mutableStateOf<Float?>(null) }
+    val eventTotal = entries.fold(0f) { acc, e -> acc + e.delta }
+    val computedScore = baseline + eventTotal
+    val finalScore = reflectionScore ?: computedScore
+    val drift = finalScore - computedScore
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    var showReflectionSheet by remember { mutableStateOf(false) }
+    var showCalendar by remember { mutableStateOf(false) }
+    var daysWithData by remember { mutableStateOf(setOf<String>()) }
 
     LaunchedEffect(Unit) {
-        entries = LedgerStore.loadEntries(context)
+        daysWithData = LedgerStore.loadDaysWithEntries(context)
+    }
+
+
+    // Load entries for the day
+    LaunchedEffect(activeDayKey) {
+        entries = LedgerStore.loadEntriesForDay(context, activeDayKey)
+    }
+
+    val calendarSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    if (showCalendar) {
+        ModalBottomSheet(
+            onDismissRequest = { showCalendar = false },
+            sheetState = calendarSheetState,
+            containerColor = MaterialTheme.colorScheme.background
+        ) {
+            MonthCalendarView(
+                activeDayKey = activeDayKey,
+                daysWithData = daysWithData,
+                onSelectDay = { selected ->
+                    activeDayKey = selected
+                    showCalendar = false
+                },
+                onDismiss = { showCalendar = false }
+            )
+
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+
+
+// Apply reflection AFTER entries are loaded & computed
+    LaunchedEffect(entries, activeDayKey) {
+        LedgerStore.loadDailyReflection(context, activeDayKey)?.let { reflection ->
+            reflectionText = reflection.note
+            reflectionScore =
+                baseline +
+                        entries.fold(0f) { acc, e -> acc + e.delta } +
+                        reflection.drift
+        }
     }
 
     Column(
@@ -131,17 +204,38 @@ fun TodayScreen() {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
 
-        // HEADER
-        Text(
-            text = "Today – Emotional Ledger",
-            style = MaterialTheme.typography.headlineMedium.copy(
-                fontWeight = FontWeight.Medium,   // was SemiBold
-                letterSpacing = 0.sp,             // remove display spacing
-                fontSize = 24.sp                  // down from 26
-            ),
-            color = Color.White
-        )
+// HEADER (title + menu)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Today – Emotional Ledger",
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.sp,
+                    fontSize = 24.sp
+                ),
+                color = Color.White,
+                modifier = Modifier.weight(1f)
+            )
 
+            IconButton(onClick = { showCalendar = true }) {
+                Icon(
+                    imageVector = Icons.Default.CalendarMonth,
+                    contentDescription = "Open calendar",
+                    tint = Color.White
+                )
+            }
+
+
+        }
+
+        Text(
+            text = LocalDate.parse(activeDayKey).format(todayFormatter),
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp),
+            color = Color.White.copy(alpha = 0.65f)
+        )
 
         // METRICS
         Row(
@@ -167,9 +261,11 @@ fun TodayScreen() {
                     val updated = entries.filterNot { it.id == toDelete.id }
                     entries = updated
 
+                    val dayKey = activeDayKey
                     coroutineScope.launch {
-                        LedgerStore.saveEntries(context, updated)
+                        LedgerStore.saveEntriesForDay(context, dayKey, updated)
                     }
+
                 }
             )
 
@@ -180,34 +276,81 @@ fun TodayScreen() {
 
         Spacer(modifier = Modifier.weight(1f))
 
+
+
         // FINAL SCORE
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Final mood",
-                style = MaterialTheme.typography.headlineSmall,
-                color = Color.White
-            )
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = "%.2f / 10.00".format(finalScore),
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White
-            )
-        }
+        Text(
+            text = "Final mood  %.2f / 10.00".format(finalScore),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White
+        )
 
         // ADD BUTTON
-        Button(
-            onClick = {
-                entryBeingEdited = null
-                showSheet = true
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(24.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("+ Add Entry")
+            Button(
+                onClick = { showReflectionSheet = true },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp),
+                shape = RoundedCornerShape(18.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = LedgerGold,
+                    contentColor = Color.Black
+                )
+            ) {
+                Text(if (reflectionScore == null && reflectionText.isBlank()) "Daily Reflection" else "Edit Reflection")
+
+            }
+
+            Button(
+                onClick = {
+                    entryBeingEdited = null
+                    showSheet = true
+
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Text("+ Add Entry")
+            }
         }
+
+    }
+    if (showReflectionSheet) {
+        DailyReflectionSheet(
+            currentComputedScore = computedScore,
+            initialText = reflectionText,
+            initialScore = reflectionScore,
+            onSave = { text, score ->
+                reflectionText = text
+                reflectionScore = score
+
+                val drift = score - computedScore
+                val dayKey = activeDayKey
+
+
+                coroutineScope.launch {
+                    LedgerStore.saveDailyReflection(
+                        context,
+                        DailyReflection(
+                            date = dayKey,
+                            note = text,
+                            drift = drift
+                        )
+                    )
+                }
+
+                showReflectionSheet = false
+            },
+            onDismiss = {
+                showReflectionSheet = false
+            }
+        )
     }
 
     // BOTTOM SHEET
@@ -215,14 +358,17 @@ fun TodayScreen() {
         AddEntrySheet(
             existingEntry = entryBeingEdited,
             onSave = { savedEntry ->
-                val updated = entries
-                    .filterNot { it.id == savedEntry.id } + savedEntry
+                val updated =
+                    entries.filterNot { it.id == savedEntry.id } + listOf(savedEntry)
+
 
                 entries = updated.sortedBy { it.timestamp }
 
+                val dayKey = activeDayKey
                 coroutineScope.launch {
-                    LedgerStore.saveEntries(context, entries)
+                    LedgerStore.saveEntriesForDay(context, dayKey, entries)
                 }
+
 
                 entryBeingEdited = null
                 showSheet = false
@@ -266,14 +412,15 @@ fun LedgerEntryRow(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = {},
+                onClick = { onEdit(entry) },
                 onLongClick = { menuExpanded = true }
             )
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
 
-        // Title
+
+    // Title
         Text(
             text = entry.title.ifBlank { "Untitled" },
             color = impactColor,
@@ -327,6 +474,151 @@ fun LedgerEntryRow(
     }
 }
 
+@Composable
+fun MonthCalendarView(
+    activeDayKey: String,
+    daysWithData: Set<String>,
+    onSelectDay: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val today = LocalDate.now()
+
+    var visibleMonth by remember {
+        mutableStateOf(
+            LocalDate.parse(activeDayKey).withDayOfMonth(1)
+        )
+    }
+
+    val daysInMonth = visibleMonth.lengthOfMonth()
+    val firstDayOffset = visibleMonth.dayOfWeek.value % 7
+
+    val monthLabel =
+        visibleMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy"))
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+    ) {
+
+        // Header
+        // Header with month navigation
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+
+            // ← Previous month
+            IconButton(
+                onClick = {
+                    visibleMonth = visibleMonth.minusMonths(1)
+                }
+            ) {
+                Text(
+                    text = "←",
+                    fontSize = 20.sp,
+                    color = Color.White
+                )
+            }
+
+            Text(
+                text = monthLabel,
+                style = MaterialTheme.typography.headlineSmall,
+                color = Color.White
+            )
+
+            // → Next month (don’t allow future months)
+            IconButton(
+                onClick = {
+                    val next = visibleMonth.plusMonths(1)
+                    if (!next.isAfter(today.withDayOfMonth(1))) {
+                        visibleMonth = next
+                    }
+                }
+            ) {
+                Text(
+                    text = "→",
+                    fontSize = 20.sp,
+                    color = Color.White
+                )
+            }
+        }
+
+
+        Spacer(Modifier.height(12.dp))
+
+        // Day labels
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            listOf("S","M","T","W","T","F","S").forEach {
+                Text(it, color = Color.White.copy(alpha = 0.5f))
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        val totalCells = ((firstDayOffset + daysInMonth + 6) / 7) * 7
+
+        Column {
+            (0 until totalCells step 7).forEach { week ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    (0..6).forEach { dayIndex ->
+                        val cellIndex = week + dayIndex
+                        val dayNumber = cellIndex - firstDayOffset + 1
+
+                        if (dayNumber in 1..daysInMonth) {
+                            val date =
+                                visibleMonth.withDayOfMonth(dayNumber).toString()
+
+                            val hasData = daysWithData.contains(date)
+                            val isFuture =
+                                LocalDate.parse(date).isAfter(today)
+                            val isToday = date == today.toString()
+
+                            Text(
+                                text = dayNumber.toString(),
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clickable(
+                                        enabled = (hasData || isToday) && !isFuture
+                                    ) {
+                                        onSelectDay(date)
+                                    }
+                                ,
+                                color = when {
+                                    date == activeDayKey ->
+                                        LedgerGold
+                                    isToday ->
+                                        LedgerGold.copy(alpha = 0.6f)
+                                    hasData ->
+                                        LedgerGold.copy(alpha = 0.9f)
+                                    isFuture ->
+                                        Color.White.copy(alpha = 0.25f)
+                                    else ->
+                                        Color.White.copy(alpha = 0.4f)
+                                }
+                                ,
+                                textAlign = TextAlign.Center
+                            )
+                        } else {
+                            Spacer(Modifier.size(36.dp))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        TextButton(onClick = onDismiss) {
+            Text("Close")
+        }
+    }
+}
 
 
 
