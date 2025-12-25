@@ -60,7 +60,10 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.filled.CalendarMonth
-
+import com.example.mood.model.TagStats
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.FlowRow
 
 
 
@@ -156,6 +159,22 @@ fun TodayScreen() {
     var showReflectionSheet by remember { mutableStateOf(false) }
     var showCalendar by remember { mutableStateOf(false) }
     var daysWithData by remember { mutableStateOf(setOf<String>()) }
+
+    val todaysTags = remember(entries) {
+        entries
+            .flatMap { it.tags }
+            .distinct()
+            .sorted()
+    }
+    var tagStats by remember { mutableStateOf<Map<String, TagStats>>(emptyMap()) }
+
+    LaunchedEffect(activeDayKey) {
+        tagStats = LedgerStore.loadTagStats(context)
+    }
+
+
+
+
 
     LaunchedEffect(Unit) {
         daysWithData = LedgerStore.loadDaysWithEntries(context)
@@ -269,12 +288,15 @@ fun TodayScreen() {
                     coroutineScope.launch {
                         LedgerStore.saveEntriesForDay(context, dayKey, updated)
 
-                        // 🔻 subtract tag influence
                         LedgerStore.removeEntryFromTagStats(
                             context = context,
                             entry = toDelete
                         )
+
+                        // ✅ FORCE refresh after stats are written
+                        tagStats = LedgerStore.loadTagStats(context)
                     }
+
                 }
 
             )
@@ -286,14 +308,57 @@ fun TodayScreen() {
 
         Spacer(modifier = Modifier.weight(1f))
 
+// TODAY'S TAGS
+        if (todaysTags.isNotEmpty()) {
+            @OptIn(ExperimentalLayoutApi::class)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                todaysTags.forEach { tag ->
+                    TagChip(
+                        label = tag,
+                        color = tagColor(tag, tagStats)
+                        // no onRemove → no ❌
+                    )
+
+                }
+            }
+
+
+            Spacer(Modifier.height(8.dp))
+        }
 
 
         // FINAL SCORE
-        Text(
-            text = "Final mood  %.2f / 10.00".format(finalScore),
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color.White
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = String.format("%.2f", finalScore),
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Medium
+                ),
+                color = moodValueColor(finalScore)
+            )
+
+            Spacer(Modifier.height(2.dp))
+
+            Text(
+                text =
+                    if (reflectionScore == null && reflectionText.isBlank())
+                        "Current Mood"
+                    else
+                        "Final Mood",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.8f)
+            )
+        }
+
+
+
 
         // ADD BUTTON
         Row(
@@ -380,13 +445,16 @@ fun TodayScreen() {
                 coroutineScope.launch {
                     LedgerStore.saveEntriesForDay(context, dayKey, entries)
 
-                    // 🔑 THIS is what makes tag stats exist
                     LedgerStore.applyEntryToTagStats(
                         context = context,
                         entry = savedEntry,
                         previousEntry = previous
                     )
+
+                    // ✅ FORCE refresh after stats are written
+                    tagStats = LedgerStore.loadTagStats(context)
                 }
+
 
                 entryBeingEdited = null
                 showSheet = false
@@ -492,7 +560,13 @@ fun LedgerEntryRow(
         }
     }
 }
-
+fun moodValueColor(value: Float): Color {
+    return when {
+        value > 0f -> Color(0xFF4CAF50)   // green
+        value < 0f -> Color(0xFFE57373)   // red
+        else -> Color.White
+    }
+}
 @Composable
 fun MonthCalendarView(
     activeDayKey: String,

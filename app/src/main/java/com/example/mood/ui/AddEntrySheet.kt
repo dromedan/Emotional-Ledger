@@ -163,34 +163,53 @@ fun AddEntrySheet(
 fun TagChip(
     label: String,
     color: Color,
-    onRemove: () -> Unit
+    onRemove: (() -> Unit)? = null
 ) {
     Surface(
         shape = RoundedCornerShape(50),
         color = color.copy(alpha = 0.15f),
         border = BorderStroke(1.dp, color.copy(alpha = 0.6f))
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-        ) {
-            Text(
-                text = label,
-                color = color,
-                style = MaterialTheme.typography.bodySmall
-            )
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "Remove tag",
-                tint = color,
+        if (onRemove == null) {
+            // ✅ DISPLAY-ONLY (Today screen)
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(16.dp)
-                    .clickable { onRemove() }
-            )
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = label,
+                    color = color,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        } else {
+            // ✏️ EDITABLE (Add Entry)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = label,
+                    color = color,
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+                Spacer(Modifier.width(8.dp))
+
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Remove tag",
+                    tint = color,
+                    modifier = Modifier
+                        .size(16.dp)
+                        .clickable { onRemove() }
+                )
+            }
         }
     }
 }
+
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
