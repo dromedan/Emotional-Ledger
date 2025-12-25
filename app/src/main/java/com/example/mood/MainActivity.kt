@@ -64,6 +64,9 @@ import com.example.mood.model.TagStats
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 
 
 
@@ -233,7 +236,7 @@ fun TodayScreen() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Today – Emotional Ledger",
+                text = "Emotional Ledger",
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontWeight = FontWeight.Medium,
                     letterSpacing = 0.sp,
@@ -260,75 +263,85 @@ fun TodayScreen() {
             color = Color.White.copy(alpha = 0.65f)
         )
 
-        // METRICS
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+
+        // ENTRIES (boxed)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    color = Color.White.copy(alpha = 0.04f),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            Metric("Baseline", baseline)
-            Metric("Events", eventTotal)
-            Metric("Drift", drift)
-        }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp) // ~6–7 entries before scroll
+                .verticalScroll(rememberScrollState())
+            ) {
+                entries.forEachIndexed { index, entry ->
+                    LedgerEntryRow(
+                        entry = entry,
+                        onEdit = {
+                            entryBeingEdited = it
+                            showSheet = true
+                        },
+                        onDelete = { toDelete ->
+                            val updated = entries.filterNot { it.id == toDelete.id }
+                            entries = updated
 
-        HorizontalDivider(color = Color.White.copy(alpha = 0.2f))
+                            val dayKey = activeDayKey
+                            coroutineScope.launch {
+                                LedgerStore.saveEntriesForDay(context, dayKey, updated)
+                                LedgerStore.removeEntryFromTagStats(context, toDelete)
+                                tagStats = LedgerStore.loadTagStats(context)
+                            }
+                        }
+                    )
 
-        // ENTRIES
-        entries.forEachIndexed { index, entry ->
-            LedgerEntryRow(
-                entry = entry,
-                onEdit = {
-                    entryBeingEdited = it
-                    showSheet = true
-                },
-                onDelete = { toDelete ->
-                    val updated = entries.filterNot { it.id == toDelete.id }
-                    entries = updated
-
-                    val dayKey = activeDayKey
-                    coroutineScope.launch {
-                        LedgerStore.saveEntriesForDay(context, dayKey, updated)
-
-                        LedgerStore.removeEntryFromTagStats(
-                            context = context,
-                            entry = toDelete
+                    if (index < entries.lastIndex) {
+                        HorizontalDivider(
+                            color = Color.White.copy(alpha = 0.06f),
+                            modifier = Modifier.padding(vertical = 4.dp)
                         )
-
-                        // ✅ FORCE refresh after stats are written
-                        tagStats = LedgerStore.loadTagStats(context)
                     }
-
                 }
-
-            )
-
-            if (index < entries.lastIndex) {
-                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
             }
         }
+
 
         Spacer(modifier = Modifier.weight(1f))
 
 // TODAY'S TAGS
         if (todaysTags.isNotEmpty()) {
-            @OptIn(ExperimentalLayoutApi::class)
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                todaysTags.forEach { tag ->
-                    TagChip(
-                        label = tag,
-                        color = tagColor(tag, tagStats)
-                        // no onRemove → no ❌
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = Color.White.copy(alpha = 0.05f),
+                        shape = RoundedCornerShape(16.dp)
                     )
-
+                    .padding(12.dp)
+            ) {
+                @OptIn(ExperimentalLayoutApi::class)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    todaysTags.forEach { tag ->
+                        TagChip(
+                            label = tag,
+                            color = tagColor(tag, tagStats)
+                        )
+                    }
                 }
             }
 
-
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
         }
+
 
 
         // FINAL SCORE
