@@ -2,6 +2,7 @@ package com.example.mood.model
 
 import kotlinx.serialization.Serializable
 
+@kotlinx.serialization.InternalSerializationApi
 @Serializable
 data class DailyReflection(
     val date: String,          // ISO yyyy-MM-dd

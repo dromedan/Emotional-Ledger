@@ -1,3 +1,4 @@
+@file:OptIn(kotlinx.serialization.InternalSerializationApi::class)
 package com.example.mood
 
 import androidx.compose.foundation.background
@@ -41,6 +42,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.platform.LocalContext
+import com.example.mood.data.LedgerStore
+import com.example.mood.model.TagStats
 
 
 
@@ -71,6 +75,12 @@ fun AddEntrySheet(
 
     var note by remember { mutableStateOf(existingEntry?.note ?: "") }
 
+    val context = LocalContext.current
+
+    val tagStats by produceState<Map<String, TagStats>>(emptyMap()) {
+        value = LedgerStore.loadTagStats(context)
+    }
+
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var title by remember { mutableStateOf(existingEntry?.title ?: "") }
     val feelingOptions = listOf(
@@ -84,10 +94,6 @@ fun AddEntrySheet(
         "Angry",
         "Anxious",
         "Hopeful"
-    )
-
-    val pastTags = listOf(
-        "love", "Jeremy", "phone call", "smile", "anxiety", "dream", "work", "family"
     )
 
     var feeling by remember { mutableStateOf(existingEntry?.feeling ?: "") }
@@ -124,10 +130,10 @@ fun AddEntrySheet(
             tagsText = tagsText,
             onTagsTextChange = { tagsText = it },
 
+            tagStats = tagStats,   // ✅ THIS IS THE FIX
+
             note = note,
             onNoteChange = { note = it },
-
-            pastTags = pastTags,
 
             onSave = {
                 onSave(
@@ -144,6 +150,7 @@ fun AddEntrySheet(
             }
         )
 
+
     }
 
 
@@ -153,42 +160,48 @@ fun AddEntrySheet(
 }
 
 @Composable
-fun TagChip(label: String, onRemove: () -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .background(
-                color = LedgerTeal.copy(alpha = 0.18f),
-                shape = RoundedCornerShape(50)
-            )
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+fun TagChip(
+    label: String,
+    color: Color,
+    onRemove: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = color.copy(alpha = 0.15f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.6f))
     ) {
-        Text(
-            text = label,
-            color = Color.White,
-            style = MaterialTheme.typography.bodySmall
-        )
-        Spacer(Modifier.width(8.dp))
-        IconButton(
-            onClick = onRemove,
-            modifier = Modifier.size(18.dp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
+            Text(
+                text = label,
+                color = color,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(Modifier.width(8.dp))
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = "Remove tag",
-                tint = LedgerTeal
+                tint = color,
+                modifier = Modifier
+                    .size(16.dp)
+                    .clickable { onRemove() }
             )
         }
     }
 }
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TagInputField(
     tags: List<String>,
+    tagStats: Map<String, TagStats>,   // ✅ ADD
     onTagsChange: (List<String>) -> Unit,
     text: String,
     onTextChange: (String) -> Unit
-) {
+)
+ {
     Surface(
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, LedgerTeal),
@@ -216,9 +229,11 @@ fun TagInputField(
                 tags.forEach { tag ->
                     TagChip(
                         label = tag,
+                        color = tagColor(tag, tagStats),
                         onRemove = { onTagsChange(tags - tag) }
                     )
                 }
+
 
                 // The actual tag text input field
                 BasicTextField(
@@ -255,50 +270,63 @@ fun TagInputField(
         }
     }
 }
-    @Composable
-    fun AutocompleteTagSuggestions(
-        query: String,
-        selectedTags: List<String>,
-        pastTags: List<String>,
-        onTagSelected: (String) -> Unit
+@Composable
+fun AutocompleteTagSuggestions(
+    query: String,
+    selectedTags: List<String>,
+    tagStats: Map<String, TagStats>,
+    onTagSelected: (String) -> Unit
+) {
+    if (query.isBlank()) return
+
+    val suggestions = remember(query, tagStats, selectedTags) {
+        tagStats.keys
+            .filter { it.contains(query, ignoreCase = true) }
+            .filterNot { it in selectedTags }
+            .sorted()
+            .take(5)
+    }
+
+    if (suggestions.isEmpty()) return
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, top = 4.dp)
+            .background(
+                color = Color(0xFF0F1A24),
+                shape = RoundedCornerShape(8.dp)
+            )
+            .border(
+                width = 1.dp,
+                color = LedgerTeal.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(8.dp)
+            )
     ) {
-        if (query.isBlank()) return
-
-        val filtered = pastTags
-            .filter { t ->
-                t.contains(query, ignoreCase = true) &&
-                        t !in selectedTags
-            }
-            .take(5) // limit suggestions
-
-        if (filtered.isEmpty()) return
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 4.dp, top = 4.dp)
-                .background(
-                    color = Color(0xFF0F1A24),
-                    shape = RoundedCornerShape(8.dp)
-                )
-                .border(
-                    width = 1.dp,
-                    color = LedgerTeal.copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(8.dp)
-                )
-        ) {
-            filtered.forEach { tag ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onTagSelected(tag) }
-                        .padding(10.dp)
-                ) {
-                    Text(tag, color = Color.White, fontSize = 14.sp)
-                }
-            }
+        suggestions.forEach { tag ->
+            Text(
+                text = tag,
+                color = tagColor(tag, tagStats),
+                fontSize = 14.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onTagSelected(tag) }
+                    .padding(10.dp)
+            )
         }
     }
+}
+
+fun tagColor(tag: String, tagStats: Map<String, TagStats>): Color {
+    val avg = tagStats[tag]?.average ?: 0f
+    return when {
+        avg > 0f -> Color(0xFF4CAF50)   // calm green
+        avg < 0f -> Color(0xFFE57373)   // soft red
+        else -> Color.White
+    }
+}
+
+
 
 @Composable
 fun SheetContent(
@@ -320,13 +348,14 @@ fun SheetContent(
     tagsText: String,
     onTagsTextChange: (String) -> Unit,
 
-    pastTags: List<String>,
+    tagStats: Map<String, TagStats>,   // ✅ ADD THIS
 
     note: String,
     onNoteChange: (String) -> Unit,
 
     onSave: () -> Unit
-) {
+)
+ {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -460,20 +489,23 @@ fun SheetContent(
 
         TagInputField(
             tags = tags,
+            tagStats = tagStats,          // ✅ ADD
             onTagsChange = onTagsChange,
             text = tagsText,
             onTextChange = onTagsTextChange
         )
 
+
         AutocompleteTagSuggestions(
             query = tagsText,
             selectedTags = tags,
-            pastTags = pastTags,
+            tagStats = tagStats,
             onTagSelected = { tag ->
                 onTagsChange(tags + tag)
                 onTagsTextChange("")
             }
         )
+
 
         Spacer(Modifier.height(24.dp))
 

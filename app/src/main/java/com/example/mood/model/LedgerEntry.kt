@@ -3,6 +3,7 @@ package com.example.mood.model
 
 import kotlinx.serialization.Serializable
 
+@kotlinx.serialization.InternalSerializationApi
 @Serializable
 data class LedgerEntry(
     val id: Long,

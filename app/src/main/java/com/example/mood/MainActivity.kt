@@ -1,4 +1,7 @@
+@file:OptIn(kotlinx.serialization.InternalSerializationApi::class)
 package com.example.mood
+
+
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -130,6 +133,7 @@ fun deltaLabel(delta: Float): String =
         delta < 0f -> "▼ %.2f".format(kotlin.math.abs(delta))
         else -> "— 0.00"
     }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodayScreen() {
@@ -264,9 +268,15 @@ fun TodayScreen() {
                     val dayKey = activeDayKey
                     coroutineScope.launch {
                         LedgerStore.saveEntriesForDay(context, dayKey, updated)
-                    }
 
+                        // 🔻 subtract tag influence
+                        LedgerStore.removeEntryFromTagStats(
+                            context = context,
+                            entry = toDelete
+                        )
+                    }
                 }
+
             )
 
             if (index < entries.lastIndex) {
@@ -358,21 +368,30 @@ fun TodayScreen() {
         AddEntrySheet(
             existingEntry = entryBeingEdited,
             onSave = { savedEntry ->
-                val updated =
-                    entries.filterNot { it.id == savedEntry.id } + listOf(savedEntry)
 
+                val previous = entryBeingEdited   // ← important
+
+                val updated =
+                    entries.filterNot { it.id == savedEntry.id } + savedEntry
 
                 entries = updated.sortedBy { it.timestamp }
 
                 val dayKey = activeDayKey
                 coroutineScope.launch {
                     LedgerStore.saveEntriesForDay(context, dayKey, entries)
-                }
 
+                    // 🔑 THIS is what makes tag stats exist
+                    LedgerStore.applyEntryToTagStats(
+                        context = context,
+                        entry = savedEntry,
+                        previousEntry = previous
+                    )
+                }
 
                 entryBeingEdited = null
                 showSheet = false
-            },
+            }
+            ,
             onDismiss = {
                 entryBeingEdited = null
                 showSheet = false
