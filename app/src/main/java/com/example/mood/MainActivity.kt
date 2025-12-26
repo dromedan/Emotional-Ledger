@@ -74,6 +74,9 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 
 
 
@@ -93,6 +96,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+
+
 @Composable
 fun DailyMoodSeal(
     mood: Float,
@@ -124,10 +130,31 @@ private fun DrawScope.drawMoodSeal(
     tags: List<String>,
     tagStats: Map<String, TagStats>
 ) {
+    drawIntoCanvas { canvas ->
+        val paint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            textSize = 14.sp.toPx()
+            alpha = 180
+        }
+    val fontMetrics = paint.fontMetrics
+    val textOffset = -fontMetrics.ascent / 2f
 
     val radius = size.minDimension / 2.2f
     val strokeWidth = 3.dp.toPx()
+    val textRadius = radius
 
+
+
+
+
+
+
+
+    val textHeight = fontMetrics.descent - fontMetrics.ascent
+    val bandThickness = textHeight + 10.dp.toPx()
+
+// Move arc inward so it surrounds text
+    val arcRadius = textRadius - bandThickness / 2f
     // Outer circle
     drawCircle(
         color = Color.White.copy(alpha = 0.18f),
@@ -137,12 +164,7 @@ private fun DrawScope.drawMoodSeal(
 
     if (tags.isEmpty()) return
 
-    drawIntoCanvas { canvas ->
-        val paint = android.graphics.Paint().apply {
-            isAntiAlias = true
-            textSize = 14.sp.toPx()
-            alpha = 180
-        }
+
 
         val path = android.graphics.Path().apply {
             addArc(
@@ -156,38 +178,70 @@ private fun DrawScope.drawMoodSeal(
         }
 
         var horizontalOffset = 0f
+
+
+
+
+        var arcOffset = 0f
         val separator = " · "
 
         tags.forEachIndexed { index, tag ->
             val avg = tagStats[tag]?.average ?: 0f
+            val color = tagImpactColor(avg)
 
-            // Set color per tag
-            paint.color = tagImpactColor(avg)
+            // Measure text width
+            val textWidth = paint.measureText(tag)
+            val separatorWidth = paint.measureText(separator)
 
-            // Draw tag
+            // Convert text width → sweep angle
+            val sweep = textWidth / (2 * Math.PI.toFloat() * radius) * 360f
+
+            // Draw colored arc segment (background)
+            drawArc(
+                color = Color(color).copy(alpha = 0.75f),
+                startAngle = -160f + arcOffset,
+                sweepAngle = sweep,
+                useCenter = false,
+                topLeft = Offset(
+                    center.x - textRadius,
+                    center.y - textRadius
+                ),
+                size = Size(
+                    textRadius * 2,
+                    textRadius * 2
+                ),
+                style = Stroke(
+                    width = bandThickness,
+                    cap = StrokeCap.Round
+                )
+            )
+
+            // Draw text on top
+            paint.color = android.graphics.Color.parseColor("#0F1A24")
+
             canvas.nativeCanvas.drawTextOnPath(
                 tag,
                 path,
-                horizontalOffset,
-                -10.dp.toPx(),
+                arcOffset * radius * Math.PI.toFloat() / 180f,
+                textOffset,
                 paint
             )
 
-            horizontalOffset += paint.measureText(tag)
+            arcOffset += sweep
 
-            // Draw separator (neutral)
+            // Separator (no colored band)
             if (index < tags.lastIndex) {
-                paint.color = android.graphics.Color.WHITE
                 canvas.nativeCanvas.drawTextOnPath(
                     separator,
                     path,
-                    horizontalOffset,
-                    -10.dp.toPx(),
+                    arcOffset * radius * Math.PI.toFloat() / 180f,
+                    textOffset,
                     paint
                 )
-                horizontalOffset += paint.measureText(separator)
+                arcOffset += separatorWidth / (2 * Math.PI.toFloat() * radius) * 360f
             }
         }
+
     }
 
 }
