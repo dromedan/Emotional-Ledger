@@ -138,6 +138,7 @@ private fun DrawScope.drawMoodSeal(
         }
     val fontMetrics = paint.fontMetrics
     val textOffset = -fontMetrics.ascent / 2f
+    val overlapDeg = 6f   // controls how much each tag overlaps the previous
 
     val radius = size.minDimension / 2.2f
     val strokeWidth = 3.dp.toPx()
@@ -194,11 +195,35 @@ private fun DrawScope.drawMoodSeal(
             val separatorWidth = paint.measureText(separator)
 
             // Convert text width → sweep angle
-            val sweep = textWidth / (2 * Math.PI.toFloat() * radius) * 360f
+            val sweep = textWidth / (2 * Math.PI.toFloat() * arcRadius) * 360f
+
 
             // Draw colored arc segment (background)
+            val outlineWidth = bandThickness + 2.dp.toPx()
+
+// 1️⃣ Black outline (drawn first)
             drawArc(
-                color = Color(color).copy(alpha = 0.75f),
+                color = Color.Black,
+                startAngle = -160f + arcOffset,
+                sweepAngle = sweep,
+                useCenter = false,
+                topLeft = Offset(
+                    center.x - textRadius,
+                    center.y - textRadius
+                ),
+                size = Size(
+                    textRadius * 2,
+                    textRadius * 2
+                ),
+                style = Stroke(
+                    width = outlineWidth,
+                    cap = StrokeCap.Round
+                )
+            )
+
+// 2️⃣ Colored pill (drawn on top)
+            drawArc(
+                color = Color(color),
                 startAngle = -160f + arcOffset,
                 sweepAngle = sweep,
                 useCenter = false,
@@ -215,6 +240,7 @@ private fun DrawScope.drawMoodSeal(
                     cap = StrokeCap.Round
                 )
             )
+
 
             // Draw text on top
             paint.color = android.graphics.Color.parseColor("#0F1A24")
@@ -318,7 +344,7 @@ fun tagImpactColor(avg: Float): Int {
     val b = android.graphics.Color.blue(targetColor)
 
     return android.graphics.Color.argb(
-        200,
+        250,
         lerp(255f, r.toFloat(), t).toInt(),
         lerp(255f, g.toFloat(), t).toInt(),
         lerp(255f, b.toFloat(), t).toInt()
