@@ -67,6 +67,13 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 
 
 
@@ -85,6 +92,119 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
+@Composable
+fun DailyMoodSeal(
+    mood: Float,
+    tags: List<String>,
+    tagStats: Map<String, TagStats>,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawMoodSeal(tags, tagStats)
+        }
+
+
+        // Center number (keep Compose Text – very important)
+        Text(
+            text = String.format("%.2f", mood),
+            style = MaterialTheme.typography.displaySmall.copy(
+                fontWeight = FontWeight.Medium
+            ),
+            color = moodValueColor(mood)
+        )
+    }
+}
+
+private fun DrawScope.drawMoodSeal(
+    tags: List<String>,
+    tagStats: Map<String, TagStats>
+) {
+
+    val radius = size.minDimension / 2.2f
+    val strokeWidth = 3.dp.toPx()
+
+    // Outer circle
+    drawCircle(
+        color = Color.White.copy(alpha = 0.18f),
+        radius = radius,
+        style = Stroke(width = strokeWidth)
+    )
+
+    if (tags.isEmpty()) return
+
+    drawIntoCanvas { canvas ->
+        val paint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            textSize = 14.sp.toPx()
+            alpha = 180
+        }
+
+        val path = android.graphics.Path().apply {
+            addArc(
+                center.x - radius,
+                center.y - radius,
+                center.x + radius,
+                center.y + radius,
+                -160f,
+                320f
+            )
+        }
+
+        var horizontalOffset = 0f
+        val separator = " · "
+
+        tags.forEachIndexed { index, tag ->
+            val avg = tagStats[tag]?.average ?: 0f
+
+            // Set color per tag
+            paint.color = tagImpactColor(avg)
+
+            // Draw tag
+            canvas.nativeCanvas.drawTextOnPath(
+                tag,
+                path,
+                horizontalOffset,
+                -10.dp.toPx(),
+                paint
+            )
+
+            horizontalOffset += paint.measureText(tag)
+
+            // Draw separator (neutral)
+            if (index < tags.lastIndex) {
+                paint.color = android.graphics.Color.WHITE
+                canvas.nativeCanvas.drawTextOnPath(
+                    separator,
+                    path,
+                    horizontalOffset,
+                    -10.dp.toPx(),
+                    paint
+                )
+                horizontalOffset += paint.measureText(separator)
+            }
+        }
+    }
+
+}
+
+fun orderTagsByImpact(
+    todaysTags: List<String>,
+    tagStats: Map<String, TagStats>
+): List<String> {
+    return todaysTags
+        .distinct()
+        .map { tag ->
+            tag to (tagStats[tag]?.average ?: 0f)
+        }
+        .sortedWith(
+            compareByDescending<Pair<String, Float>> { it.second }
+        )
+        .map { it.first }
 }
 
 fun feelingEmoji(feeling: String): String =
@@ -124,6 +244,33 @@ fun deltaColor(delta: Float): Color {
         alpha = 1f
     )
 }
+fun tagImpactColor(avg: Float): Int {
+    val clamped = avg.coerceIn(-2f, 2f)
+    val t = kotlin.math.abs(clamped) / 2f
+
+    if (clamped == 0f) {
+        return android.graphics.Color.WHITE
+    }
+
+    val targetColor =
+        if (clamped > 0f) {
+            android.graphics.Color.rgb(76, 175, 80)   // green
+        } else {
+            android.graphics.Color.rgb(229, 115, 115) // red
+        }
+
+    val r = android.graphics.Color.red(targetColor)
+    val g = android.graphics.Color.green(targetColor)
+    val b = android.graphics.Color.blue(targetColor)
+
+    return android.graphics.Color.argb(
+        200,
+        lerp(255f, r.toFloat(), t).toInt(),
+        lerp(255f, g.toFloat(), t).toInt(),
+        lerp(255f, b.toFloat(), t).toInt()
+    )
+}
+
 
 private fun lerp(start: Float, end: Float, t: Float): Float =
     start + (end - start) * t
@@ -313,51 +460,19 @@ fun TodayScreen() {
 
         Spacer(modifier = Modifier.weight(1f))
 
-// TODAY'S TAGS
         if (todaysTags.isNotEmpty()) {
-            Box(
+            val orderedTags = orderTagsByImpact(todaysTags, tagStats)
+
+            DailyMoodSeal(
+                mood = finalScore,
+                tags = orderedTags,
+                tagStats = tagStats,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(
-                        color = Color.White.copy(alpha = 0.05f),
-                        shape = RoundedCornerShape(16.dp)
-                    )
-                    .padding(12.dp)
-            ) {
-                @OptIn(ExperimentalLayoutApi::class)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    todaysTags.forEach { tag ->
-                        TagChip(
-                            label = tag,
-                            color = tagColor(tag, tagStats)
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-        }
-
-
-
-        // FINAL SCORE
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = String.format("%.2f", finalScore),
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontWeight = FontWeight.Medium
-                ),
-                color = moodValueColor(finalScore)
+                    .height(240.dp)
             )
 
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(12.dp))
 
             Text(
                 text =
@@ -366,11 +481,10 @@ fun TodayScreen() {
                     else
                         "Final Mood",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.8f)
+                color = Color.White.copy(alpha = 0.75f),
+                modifier = Modifier.align(Alignment.CenterHorizontally)
             )
         }
-
-
 
 
         // ADD BUTTON
