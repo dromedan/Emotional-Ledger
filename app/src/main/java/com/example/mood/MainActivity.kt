@@ -77,6 +77,10 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.draw.clip
+
 
 
 
@@ -102,34 +106,123 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun DailyMoodSeal(
     mood: Float,
+    baseline: Float,
     tags: List<String>,
     tagStats: Map<String, TagStats>,
     modifier: Modifier = Modifier
 ) {
+    var lastTouchAngle by remember { mutableStateOf<Float?>(null) }
+    var rotationDeg by remember { mutableStateOf(0f) }
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawMoodSeal(tags, tagStats)
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            lastTouchAngle = null
+                        },
+                        onDragEnd = {
+                            lastTouchAngle = null
+                        },
+                        onDragCancel = {
+                            lastTouchAngle = null
+                        },
+                        onDrag = { change, _ ->
+                            val center = Offset(
+                                size.width / 2f,
+                                size.height / 2f
+                            )
+
+                            val touch = change.position
+
+                            val angle = Math.toDegrees(
+                                kotlin.math.atan2(
+                                    (touch.y - center.y).toDouble(),
+                                    (touch.x - center.x).toDouble()
+                                )
+                            ).toFloat()
+
+                            lastTouchAngle?.let { last ->
+                                var delta = angle - last
+
+                                // Normalize to shortest rotation path
+                                if (delta > 180f) delta -= 360f
+                                if (delta < -180f) delta += 360f
+
+                                rotationDeg += delta
+                                rotationDeg %= 360f
+                            }
+
+                            lastTouchAngle = angle
+                        }
+                    )
+                }
+
+        ) {
+            drawMoodSeal(
+                tags = tags,
+                tagStats = tagStats,
+                rotationDeg = rotationDeg
+            )
         }
 
 
+
         // Center number (keep Compose Text – very important)
-        Text(
-            text = String.format("%.2f", mood),
-            style = MaterialTheme.typography.displaySmall.copy(
-                fontWeight = FontWeight.Medium
-            ),
-            color = moodValueColor(mood)
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+
+            Text(
+                text = "Current",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 12.sp,
+                    letterSpacing = 0.8.sp
+                ),
+                color = Color.White.copy(alpha = 0.65f)
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = String.format("%.2f", mood),
+                style = MaterialTheme.typography.displaySmall.copy(
+                    fontWeight = FontWeight.Medium
+                ),
+                color =
+                    if (mood >= baseline)
+                        Color(0xFF4CAF50)   // green
+                    else
+                        Color(0xFFE57373)   // red
+
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = "Mood Score",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 11.sp,
+                    letterSpacing = 0.6.sp
+                ),
+                color = Color.White.copy(alpha = 0.65f)
+            )
+        }
+
     }
 }
 
 private fun DrawScope.drawMoodSeal(
     tags: List<String>,
-    tagStats: Map<String, TagStats>
+    tagStats: Map<String, TagStats>,
+    rotationDeg: Float
 ) {
+
     drawIntoCanvas { canvas ->
         val paint = android.graphics.Paint().apply {
             isAntiAlias = true
@@ -166,17 +259,18 @@ private fun DrawScope.drawMoodSeal(
     if (tags.isEmpty()) return
 
 
-
+        val baseStartAngle = -160f + rotationDeg
         val path = android.graphics.Path().apply {
             addArc(
                 center.x - radius,
                 center.y - radius,
                 center.x + radius,
                 center.y + radius,
-                -160f,
+                baseStartAngle,
                 320f
             )
         }
+
 
         var horizontalOffset = 0f
 
@@ -184,6 +278,8 @@ private fun DrawScope.drawMoodSeal(
 
 
         var arcOffset = 0f
+
+
         val separator = " · "
 
         tags.forEachIndexed { index, tag ->
@@ -204,7 +300,8 @@ private fun DrawScope.drawMoodSeal(
 // 1️⃣ Black outline (drawn first)
             drawArc(
                 color = Color.Black,
-                startAngle = -160f + arcOffset,
+                startAngle = baseStartAngle + arcOffset,
+
                 sweepAngle = sweep,
                 useCenter = false,
                 topLeft = Offset(
@@ -224,7 +321,8 @@ private fun DrawScope.drawMoodSeal(
 // 2️⃣ Colored pill (drawn on top)
             drawArc(
                 color = Color(color),
-                startAngle = -160f + arcOffset,
+                startAngle = baseStartAngle + arcOffset,
+
                 sweepAngle = sweep,
                 useCenter = false,
                 topLeft = Offset(
@@ -248,7 +346,8 @@ private fun DrawScope.drawMoodSeal(
             canvas.nativeCanvas.drawTextOnPath(
                 tag,
                 path,
-                arcOffset * radius * Math.PI.toFloat() / 180f,
+                arcOffset * radius * Math.PI.toFloat() / 180f
+                ,
                 textOffset,
                 paint
             )
@@ -260,7 +359,8 @@ private fun DrawScope.drawMoodSeal(
                 canvas.nativeCanvas.drawTextOnPath(
                     separator,
                     path,
-                    arcOffset * radius * Math.PI.toFloat() / 180f,
+                    arcOffset * radius * Math.PI.toFloat() / 180f
+                    ,
                     textOffset,
                     paint
                 )
@@ -373,13 +473,16 @@ fun TodayScreen() {
     var entries by remember { mutableStateOf(listOf<LedgerEntry>()) }
     var showSheet by remember { mutableStateOf(false) }
     var entryBeingEdited by remember { mutableStateOf<LedgerEntry?>(null) }
-
-    var reflectionText by remember { mutableStateOf("") }
-
     var activeDayKey by remember { mutableStateOf(todayKey()) }
-
     val baseline = 5.00f
-    var reflectionScore by remember { mutableStateOf<Float?>(null) }
+    var reflectionText by remember(activeDayKey) {
+        mutableStateOf("")
+    }
+
+    var reflectionScore by remember(activeDayKey) {
+        mutableStateOf<Float?>(null)
+    }
+
     val eventTotal = entries.fold(0f) { acc, e -> acc + e.delta }
     val computedScore = baseline + eventTotal
     val finalScore = reflectionScore ?: computedScore
@@ -441,135 +544,183 @@ fun TodayScreen() {
 
 // Apply reflection AFTER entries are loaded & computed
     LaunchedEffect(entries, activeDayKey) {
-        LedgerStore.loadDailyReflection(context, activeDayKey)?.let { reflection ->
-            reflectionText = reflection.note
+        val saved = LedgerStore.loadDailyReflection(context, activeDayKey)
+
+        if (saved != null) {
+            reflectionText = saved.note
             reflectionScore =
                 baseline +
                         entries.fold(0f) { acc, e -> acc + e.delta } +
-                        reflection.drift
+                        saved.drift
+        } else {
+            // ✅ reset for days with no reflection
+            reflectionText = ""
+            reflectionScore = null
         }
     }
 
-    Column(
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    start = 24.dp,
+                    end = 24.dp,
+                    top = 24.dp,
+                    bottom = 356.dp
+                )
+            ,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+
 
 // HEADER (title + menu)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Emotional Ledger",
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontWeight = FontWeight.Medium,
-                    letterSpacing = 0.sp,
-                    fontSize = 24.sp
-                ),
-                color = Color.White,
-                modifier = Modifier.weight(1f)
-            )
-
-            IconButton(onClick = { showCalendar = true }) {
-                Icon(
-                    imageVector = Icons.Default.CalendarMonth,
-                    contentDescription = "Open calendar",
-                    tint = Color.White
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Emotional Ledger",
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = 0.sp,
+                        fontSize = 24.sp
+                    ),
+                    color = Color.White,
+                    modifier = Modifier.weight(1f)
                 )
+
+                IconButton(onClick = { showCalendar = true }) {
+                    Icon(
+                        imageVector = Icons.Default.CalendarMonth,
+                        contentDescription = "Open calendar",
+                        tint = Color.White
+                    )
+                }
+
+
             }
 
-
-        }
-
-        Text(
-            text = LocalDate.parse(activeDayKey).format(todayFormatter),
-            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp),
-            color = Color.White.copy(alpha = 0.65f)
-        )
+            Text(
+                text = LocalDate.parse(activeDayKey).format(todayFormatter),
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp),
+                color = Color.White.copy(alpha = 0.65f)
+            )
 
 
-        // ENTRIES (boxed)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    color = Color.White.copy(alpha = 0.04f),
-                    shape = RoundedCornerShape(16.dp)
-                )
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
-            Column(
+            // ENTRIES (boxed)
+            // ENTRIES (boxed)
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 420.dp) // ~6–7 entries before scroll
-                .verticalScroll(rememberScrollState())
+                    .height(400.dp) // ⬅ Box owns the height
+                    .background(
+                        color = Color.White.copy(alpha = 0.04f),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
-                entries.forEachIndexed { index, entry ->
-                    LedgerEntryRow(
-                        entry = entry,
-                        onEdit = {
-                            entryBeingEdited = it
-                            showSheet = true
-                        },
-                        onDelete = { toDelete ->
-                            val updated = entries.filterNot { it.id == toDelete.id }
-                            entries = updated
 
-                            val dayKey = activeDayKey
-                            coroutineScope.launch {
-                                LedgerStore.saveEntriesForDay(context, dayKey, updated)
-                                LedgerStore.removeEntryFromTagStats(context, toDelete)
-                                tagStats = LedgerStore.loadTagStats(context)
+                if (entries.isEmpty()) {
+                    // ✅ EMPTY STATE (static, centered)
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "No entries yet today",
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = Color.White.copy(alpha = 0.75f)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "Add moments that influenced your mood.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.45f),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                } else {
+                    // ✅ ENTRIES LIST (must be a Column!)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .clip(RoundedCornerShape(16.dp))
+                    ) {
+                        entries.forEachIndexed { index, entry ->
+                            LedgerEntryRow(
+                                entry = entry,
+                                onEdit = {
+                                    entryBeingEdited = it
+                                    showSheet = true
+                                },
+                                onDelete = { toDelete ->
+                                    val updated = entries.filterNot { it.id == toDelete.id }
+                                    entries = updated
+
+                                    val dayKey = activeDayKey
+                                    coroutineScope.launch {
+                                        LedgerStore.saveEntriesForDay(context, dayKey, updated)
+                                        LedgerStore.removeEntryFromTagStats(context, toDelete)
+                                        tagStats = LedgerStore.loadTagStats(context)
+                                    }
+                                }
+                            )
+
+                            if (index < entries.lastIndex) {
+                                HorizontalDivider(
+                                    color = Color.White.copy(alpha = 0.06f),
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
                             }
                         }
-                    )
-
-                    if (index < entries.lastIndex) {
-                        HorizontalDivider(
-                            color = Color.White.copy(alpha = 0.06f),
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
                     }
                 }
             }
+
+
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+
+
+
         }
-
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        if (todaysTags.isNotEmpty()) {
-            val orderedTags = orderTagsByImpact(todaysTags, tagStats)
+        val orderedTags =
+            if (todaysTags.isNotEmpty())
+                orderTagsByImpact(todaysTags, tagStats)
+            else
+                emptyList()
 
             DailyMoodSeal(
                 mood = finalScore,
+                baseline = baseline,
                 tags = orderedTags,
                 tagStats = tagStats,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(240.dp)
+                    .aspectRatio(1f)
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 210.dp) // sits above buttons
             )
 
-            Spacer(Modifier.height(12.dp))
 
-            Text(
-                text =
-                    if (reflectionScore == null && reflectionText.isBlank())
-                        "Current Mood"
-                    else
-                        "Final Mood",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.75f),
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
-        }
-
-
-        // ADD BUTTON
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Button(
@@ -583,15 +734,18 @@ fun TodayScreen() {
                     contentColor = Color.Black
                 )
             ) {
-                Text(if (reflectionScore == null && reflectionText.isBlank()) "Daily Reflection" else "Edit Reflection")
-
+                Text(
+                    if (reflectionScore == null && reflectionText.isBlank())
+                        "Daily Reflection"
+                    else
+                        "Edit Reflection"
+                )
             }
 
             Button(
                 onClick = {
                     entryBeingEdited = null
                     showSheet = true
-
                 },
                 modifier = Modifier
                     .weight(1f)
@@ -602,7 +756,7 @@ fun TodayScreen() {
             }
         }
 
-    }
+        }
     if (showReflectionSheet) {
         DailyReflectionSheet(
             currentComputedScore = computedScore,
