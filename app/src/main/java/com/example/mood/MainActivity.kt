@@ -103,17 +103,23 @@ class MainActivity : ComponentActivity() {
 
 
 
+
 @Composable
 fun DailyMoodSeal(
     mood: Float,
     baseline: Float,
+    drift: Float?,
     tags: List<String>,
     tagStats: Map<String, TagStats>,
     modifier: Modifier = Modifier
-) {
+)
+ {
     var lastTouchAngle by remember { mutableStateOf<Float?>(null) }
     var rotationDeg by remember { mutableStateOf(0f) }
-    Box(
+     var activeTagIndex by remember { mutableStateOf<Int?>(null) }
+     var currentTouchAngle by remember { mutableStateOf<Float?>(null) }
+
+     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
@@ -127,9 +133,13 @@ fun DailyMoodSeal(
                         },
                         onDragEnd = {
                             lastTouchAngle = null
+                            currentTouchAngle = null
+                            activeTagIndex = null
                         },
                         onDragCancel = {
                             lastTouchAngle = null
+                            currentTouchAngle = null
+                            activeTagIndex = null
                         },
                         onDrag = { change, _ ->
                             val center = Offset(
@@ -145,6 +155,8 @@ fun DailyMoodSeal(
                                     (touch.x - center.x).toDouble()
                                 )
                             ).toFloat()
+                            val normalizedAngle = (angle + 360f) % 360f
+                            currentTouchAngle = normalizedAngle
 
                             lastTouchAngle?.let { last ->
                                 var delta = angle - last
@@ -162,13 +174,21 @@ fun DailyMoodSeal(
                     )
                 }
 
-        ) {
+        )
+        {
+
             drawMoodSeal(
                 tags = tags,
                 tagStats = tagStats,
-                rotationDeg = rotationDeg
+                rotationDeg = rotationDeg,
+                touchAngle = currentTouchAngle,
+                activeTagIndex = activeTagIndex,
+                onActiveTagChange = { activeTagIndex = it }
             )
+
+
         }
+
 
 
 
@@ -179,7 +199,7 @@ fun DailyMoodSeal(
         ) {
 
             Text(
-                text = "Current",
+                text = if (drift != null) "Final" else "Current",
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontSize = 12.sp,
                     letterSpacing = 0.8.sp
@@ -212,6 +232,22 @@ fun DailyMoodSeal(
                 ),
                 color = Color.White.copy(alpha = 0.65f)
             )
+            if (drift != null && drift != 0f) {
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                    text = when {
+                        drift > 0f -> "▲ %.2f reflection".format(drift)
+                        else -> "▼ %.2f reflection".format(kotlin.math.abs(drift))
+                    },
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 11.sp,
+                        letterSpacing = 0.4.sp
+                    ),
+                    color = deltaColor(drift).copy(alpha = 0.75f)
+                )
+            }
+
         }
 
     }
@@ -220,8 +256,13 @@ fun DailyMoodSeal(
 private fun DrawScope.drawMoodSeal(
     tags: List<String>,
     tagStats: Map<String, TagStats>,
-    rotationDeg: Float
-) {
+    rotationDeg: Float,
+    touchAngle: Float?,
+    activeTagIndex: Int?,
+    onActiveTagChange: (Int?) -> Unit
+)
+
+ {
 
     drawIntoCanvas { canvas ->
         val paint = android.graphics.Paint().apply {
@@ -231,9 +272,11 @@ private fun DrawScope.drawMoodSeal(
         }
     val fontMetrics = paint.fontMetrics
     val textOffset = -fontMetrics.ascent / 2f
-    val overlapDeg = 6f   // controls how much each tag overlaps the previous
+        val tagPaddingDeg = 6f   // fixed angular padding per tag
+        val minSweepDeg = 14f    // minimum arc span so short words don’t crowd
 
-    val radius = size.minDimension / 2.2f
+
+        val radius = size.minDimension / 2.2f
     val strokeWidth = 3.dp.toPx()
     val textRadius = radius
 
@@ -279,8 +322,38 @@ private fun DrawScope.drawMoodSeal(
 
         var arcOffset = 0f
 
+// Normalize base angle to 0–360 for hit testing
+        val normalizedBaseStart =
+            ((-160f + rotationDeg) % 360f + 360f) % 360f
+
+
 
         val separator = " · "
+
+// ---- PRECOMPUTE TAG SWEEPS (for normalization) ----
+        val tagSweeps = mutableListOf<Float>()
+
+        tags.forEach { tag ->
+            val textWidth = paint.measureText(tag)
+            val rawSweep =
+                textWidth / (2 * Math.PI.toFloat() * arcRadius) * 360f
+
+            val sweep =
+                maxOf(rawSweep, minSweepDeg) + tagPaddingDeg
+
+            tagSweeps += sweep
+        }
+
+        val totalSweep = tagSweeps.sum()
+        val maxSweep = 320f
+
+// Scale down uniformly if we overflow the available arc
+        val sweepScale =
+            if (totalSweep > maxSweep)
+                maxSweep / totalSweep
+            else
+                1f
+
 
         tags.forEachIndexed { index, tag ->
             val avg = tagStats[tag]?.average ?: 0f
@@ -291,17 +364,64 @@ private fun DrawScope.drawMoodSeal(
             val separatorWidth = paint.measureText(separator)
 
             // Convert text width → sweep angle
-            val sweep = textWidth / (2 * Math.PI.toFloat() * arcRadius) * 360f
+            val sweep = tagSweeps[index] * sweepScale
+
+            val midAngle =
+                (baseStartAngle + arcOffset + sweep / 2f + 360f) % 360f
+
+            val isUpsideDown = midAngle in 90f..270f
+
+
+
+
+// --- HIT TEST FOR ACTIVE TAG ---
+            val startAngle =
+                (normalizedBaseStart + arcOffset) % 360f
+            val endAngle =
+                (startAngle + sweep) % 360f
+
+            val isActive =
+                touchAngle != null &&
+                        if (startAngle <= endAngle)
+                            touchAngle in startAngle..endAngle
+                        else
+                            touchAngle >= startAngle || touchAngle <= endAngle
+
+            if (isActive) {
+                onActiveTagChange(index)
+            }
+
 
 
             // Draw colored arc segment (background)
             val outlineWidth = bandThickness + 2.dp.toPx()
 
+// ✨ Glow for active tag (drawn first)
+            if (index == activeTagIndex) {
+                drawArc(
+                    color = Color.White.copy(alpha = 0.28f),
+                    startAngle = baseStartAngle + arcOffset,
+                    sweepAngle = sweep,
+                    useCenter = false,
+                    topLeft = Offset(
+                        center.x - textRadius,
+                        center.y - textRadius
+                    ),
+                    size = Size(
+                        textRadius * 2,
+                        textRadius * 2
+                    ),
+                    style = Stroke(
+                        width = bandThickness + 12.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                )
+            }
+
 // 1️⃣ Black outline (drawn first)
             drawArc(
                 color = Color.Black,
                 startAngle = baseStartAngle + arcOffset,
-
                 sweepAngle = sweep,
                 useCenter = false,
                 topLeft = Offset(
@@ -364,7 +484,9 @@ private fun DrawScope.drawMoodSeal(
                     textOffset,
                     paint
                 )
-                arcOffset += separatorWidth / (2 * Math.PI.toFloat() * radius) * 360f
+                arcOffset +=
+                    separatorWidth / (2 * Math.PI.toFloat() * radius) * 360f * 0.6f
+
             }
         }
 
@@ -404,51 +526,53 @@ fun feelingEmoji(feeling: String): String =
     }
 
 fun deltaColor(delta: Float): Color {
-    val clamped = delta.coerceIn(-2f, 2f)
-    val t = kotlin.math.abs(clamped) / 2f
+    return when {
+        delta == 0f ->
+            Color.White
 
-    if (clamped == 0f) {
-        return Color.White
+        delta > 0f && delta < 0.75f ->
+            Color(0xFFA5D6A7) // soft green
+
+        delta >= 0.75f && delta < 1.25f ->
+            Color(0xFF66BB6A) // medium green
+
+        delta >= 1.25f ->
+            Color(0xFF388E3C) // strong green
+
+        delta < 0f && delta > -0.75f ->
+            Color(0xFFE5A0A0) // soft red
+
+        delta <= -0.75f && delta > -1.25f ->
+            Color(0xFFE57373) // medium red
+
+        else ->
+            Color(0xFFB73F3F) // strong red
     }
-
-    val target = if (clamped > 0f) {
-        Color(0xFF4CAF50) // green
-    } else {
-        Color(0xFFE57373) // red
-    }
-
-    return Color(
-        red   = lerp(1f, target.red,   t),
-        green = lerp(1f, target.green, t),
-        blue  = lerp(1f, target.blue,  t),
-        alpha = 1f
-    )
 }
+
 fun tagImpactColor(avg: Float): Int {
-    val clamped = avg.coerceIn(-2f, 2f)
-    val t = kotlin.math.abs(clamped) / 2f
+    return when {
+        avg == 0f ->
+            android.graphics.Color.WHITE
 
-    if (clamped == 0f) {
-        return android.graphics.Color.WHITE
+        avg > 0f && avg < 0.75f ->
+            android.graphics.Color.argb(240, 165, 214, 167) // soft green
+
+        avg >= 0.75f && avg < 1.25f ->
+            android.graphics.Color.argb(245, 102, 187, 106) // medium green
+
+        avg >= 1.25f ->
+            android.graphics.Color.argb(255, 56, 142, 60)   // strong green
+
+        avg < 0f && avg > -0.75f ->
+            android.graphics.Color.argb(240, 229, 157, 157) // soft red
+
+        avg <= -0.75f && avg > -1.25f ->
+            android.graphics.Color.argb(245, 229, 115, 115) // medium red
+
+        else ->
+            android.graphics.Color.argb(255, 183, 63, 63)   // strong red
     }
-
-    val targetColor =
-        if (clamped > 0f) {
-            android.graphics.Color.rgb(76, 175, 80)   // green
-        } else {
-            android.graphics.Color.rgb(229, 115, 115) // red
-        }
-
-    val r = android.graphics.Color.red(targetColor)
-    val g = android.graphics.Color.green(targetColor)
-    val b = android.graphics.Color.blue(targetColor)
-
-    return android.graphics.Color.argb(
-        250,
-        lerp(255f, r.toFloat(), t).toInt(),
-        lerp(255f, g.toFloat(), t).toInt(),
-        lerp(255f, b.toFloat(), t).toInt()
-    )
 }
 
 
@@ -703,18 +827,19 @@ fun TodayScreen() {
             else
                 emptyList()
 
-            DailyMoodSeal(
-                mood = finalScore,
-                baseline = baseline,
-                tags = orderedTags,
-                tagStats = tagStats,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(240.dp)
-                    .aspectRatio(1f)
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 210.dp) // sits above buttons
-            )
+        DailyMoodSeal(
+            mood = finalScore,
+            baseline = baseline,
+            drift = if (reflectionScore != null) drift else null,
+            tags = orderedTags,
+            tagStats = tagStats,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(240.dp)
+                .aspectRatio(1f)
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 210.dp)
+        )
 
 
         Row(

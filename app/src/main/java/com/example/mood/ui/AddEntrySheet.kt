@@ -338,12 +338,31 @@ fun AutocompleteTagSuggestions(
 
 fun tagColor(tag: String, tagStats: Map<String, TagStats>): Color {
     val avg = tagStats[tag]?.average ?: 0f
+
     return when {
-        avg > 0f -> Color(0xFF4CAF50)   // calm green
-        avg < 0f -> Color(0xFFE57373)   // soft red
-        else -> Color.White
+        avg == 0f ->
+            Color.White
+
+        avg > 0f && avg < 0.75f ->
+            Color(0xFFA5D6A7) // soft green
+
+        avg >= 0.75f && avg < 1.25f ->
+            Color(0xFF66BB6A) // medium green
+
+        avg >= 1.25f ->
+            Color(0xFF388E3C) // strong green
+
+        avg < 0f && avg > -0.75f ->
+            Color(0xFFE5A0A0) // soft red
+
+        avg <= -0.75f && avg > -1.25f ->
+            Color(0xFFE57373) // medium red
+
+        else ->
+            Color(0xFFB73F3F) // strong red
     }
 }
+
 
 
 
