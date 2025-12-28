@@ -80,6 +80,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import java.time.DayOfWeek
 
 
 
@@ -111,8 +113,10 @@ fun DailyMoodSeal(
     drift: Float?,
     tags: List<String>,
     tagStats: Map<String, TagStats>,
+    onCenterTap: () -> Unit,
     modifier: Modifier = Modifier
 )
+
  {
     var lastTouchAngle by remember { mutableStateOf<Float?>(null) }
     var rotationDeg by remember { mutableStateOf(0f) }
@@ -193,21 +197,19 @@ fun DailyMoodSeal(
 
 
         // Center number (keep Compose Text – very important)
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
+         Column(
+             horizontalAlignment = Alignment.CenterHorizontally,
+             verticalArrangement = Arrangement.Center,
+             modifier = Modifier.clickable(
+                 indication = null,
+                 interactionSource = remember { MutableInteractionSource() }
+             ) {
+                 onCenterTap(/* dayKey will be provided by caller */)
+             }
+         ) {
 
-            Text(
-                text = if (drift != null) "Final" else "Current",
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontSize = 12.sp,
-                    letterSpacing = 0.8.sp
-                ),
-                color = Color.White.copy(alpha = 0.65f)
-            )
 
-            Spacer(modifier = Modifier.height(4.dp))
+         Spacer(modifier = Modifier.height(4.dp))
 
             Text(
                 text = String.format("%.2f", mood),
@@ -602,10 +604,31 @@ fun TodayScreen() {
     var reflectionText by remember(activeDayKey) {
         mutableStateOf("")
     }
+    var trendsWeekStart by remember { mutableStateOf<LocalDate?>(null) }
 
     var reflectionScore by remember(activeDayKey) {
         mutableStateOf<Float?>(null)
     }
+    val activeDate =
+        LocalDate.parse(activeDayKey)
+
+    val activeWeekStart =
+        activeDate.with(DayOfWeek.SUNDAY)
+
+    var showTrends by remember { mutableStateOf(false) }
+
+    if (showTrends && trendsWeekStart != null) {
+        MoodTrendsScreen(
+            initialWeekStart = trendsWeekStart!!,
+            onBack = {
+                showTrends = false
+                trendsWeekStart = null
+            }
+        )
+        return
+    }
+
+
 
     val eventTotal = entries.fold(0f) { acc, e -> acc + e.delta }
     val computedScore = baseline + eventTotal
@@ -628,9 +651,6 @@ fun TodayScreen() {
     LaunchedEffect(activeDayKey) {
         tagStats = LedgerStore.loadTagStats(context)
     }
-
-
-
 
 
     LaunchedEffect(Unit) {
@@ -833,6 +853,13 @@ fun TodayScreen() {
             drift = if (reflectionScore != null) drift else null,
             tags = orderedTags,
             tagStats = tagStats,
+            onCenterTap = {
+                val date = LocalDate.parse(activeDayKey)
+                trendsWeekStart =
+                    date.with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
+
+                showTrends = true
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(240.dp)
@@ -840,6 +867,7 @@ fun TodayScreen() {
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 210.dp)
         )
+
 
 
         Row(

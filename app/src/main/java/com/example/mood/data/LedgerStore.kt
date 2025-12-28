@@ -1,3 +1,4 @@
+@file:OptIn(kotlinx.serialization.InternalSerializationApi::class)
 package com.example.mood.data
 
 import android.content.Context
@@ -13,6 +14,9 @@ import kotlinx.serialization.json.Json
 import com.example.mood.model.TagStats
 import kotlinx.serialization.InternalSerializationApi
 import android.util.Log
+import java.time.LocalDate
+
+import com.example.mood.model.DailyMoodPoint
 
 
 
@@ -195,6 +199,39 @@ object LedgerStore {
         saveTagStats(context, cleaned)
     }
 
+}
+suspend fun loadWeeklyMood(
+    context: Context,
+    weekStart: LocalDate,
+    baseline: Float = 5.0f
+): List<DailyMoodPoint> {
+
+    return (0..6).map { offset ->
+        val day = weekStart.plusDays(offset.toLong())
+        val dayKey = day.toString()
+
+        val entries =
+            LedgerStore.loadEntriesForDay(context, dayKey)
+
+        val reflection =
+            LedgerStore.loadDailyReflection(context, dayKey)
+
+        val eventTotal =
+            entries.sumOf { it.delta.toDouble() }.toFloat()
+
+        val computed = baseline + eventTotal
+
+        val final =
+            if (reflection != null)
+                computed + reflection.drift
+            else
+                computed
+
+        DailyMoodPoint(
+            date = day,
+            score = final
+        )
+    }
 }
 
 
