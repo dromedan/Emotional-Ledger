@@ -82,6 +82,13 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import java.time.DayOfWeek
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.content.Intent
+import androidx.compose.material.icons.filled.Download
+import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
 
 
 
@@ -106,6 +113,7 @@ class MainActivity : ComponentActivity() {
 
 
 
+
 @Composable
 fun DailyMoodSeal(
     mood: Float,
@@ -113,9 +121,13 @@ fun DailyMoodSeal(
     drift: Float?,
     tags: List<String>,
     tagStats: Map<String, TagStats>,
+    isObsidianConnected: Boolean,
     onCenterTap: () -> Unit,
+    onExportTap: () -> Unit,
     modifier: Modifier = Modifier
 )
+
+
 
  {
     var lastTouchAngle by remember { mutableStateOf<Float?>(null) }
@@ -226,31 +238,57 @@ fun DailyMoodSeal(
 
             Spacer(modifier = Modifier.height(2.dp))
 
-            Text(
-                text = "Mood Score",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 11.sp,
-                    letterSpacing = 0.6.sp
-                ),
-                color = Color.White.copy(alpha = 0.65f)
-            )
-            if (drift != null && drift != 0f) {
-                Spacer(modifier = Modifier.height(2.dp))
+             Text(
+                 text = "Mood Score",
+                 style = MaterialTheme.typography.labelSmall.copy(
+                     fontSize = 11.sp,
+                     letterSpacing = 0.6.sp
+                 ),
+                 color = Color.White.copy(alpha = 0.65f)
+             )
 
-                Text(
-                    text = when {
-                        drift > 0f -> "▲ %.2f reflection".format(drift)
-                        else -> "▼ %.2f reflection".format(kotlin.math.abs(drift))
-                    },
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 11.sp,
-                        letterSpacing = 0.4.sp
-                    ),
-                    color = deltaColor(drift).copy(alpha = 0.75f)
-                )
-            }
+             // --- Fixed slot for export button (prevents vertical shifting) ---
+             // Reflection text (may appear or not — does NOT affect icon position)
+             if (drift != null && drift != 0f) {
+                 Spacer(modifier = Modifier.height(4.dp))
 
-        }
+                 Text(
+                     text = when {
+                         drift > 0f -> "▲ %.2f reflection".format(drift)
+                         else -> "▼ %.2f reflection".format(kotlin.math.abs(drift))
+                     },
+                     style = MaterialTheme.typography.labelSmall.copy(
+                         fontSize = 11.sp,
+                         letterSpacing = 0.4.sp
+                     ),
+                     color = deltaColor(drift).copy(alpha = 0.75f)
+                 )
+             }
+
+// --- Fixed slot for export button (ALWAYS same position) ---
+             Box(
+                 modifier = Modifier
+                     .height(36.dp)   // reserved space
+                     .padding(top = 4.dp),
+                 contentAlignment = Alignment.Center
+             ) {
+                 if (isObsidianConnected) {
+                     IconButton(
+                         onClick = onExportTap,
+                         modifier = Modifier.size(28.dp)
+                     ) {
+                         Icon(
+                             imageVector = Icons.Default.Download,
+                             contentDescription = "Export to Obsidian",
+                             tint = Color.White.copy(alpha = 0.75f),
+                             modifier = Modifier.size(18.dp)
+                         )
+                     }
+                 }
+             }
+
+
+         }
 
     }
 }
@@ -307,10 +345,11 @@ private fun DrawScope.drawMoodSeal(
         val baseStartAngle = -160f + rotationDeg
         val path = android.graphics.Path().apply {
             addArc(
-                center.x - radius,
-                center.y - radius,
-                center.x + radius,
-                center.y + radius,
+                center.x - textRadius,
+                center.y - textRadius,
+                center.x + textRadius,
+                center.y + textRadius,
+
                 baseStartAngle,
                 320f
             )
@@ -347,7 +386,7 @@ private fun DrawScope.drawMoodSeal(
         }
 
         val totalSweep = tagSweeps.sum()
-        val maxSweep = 320f
+        val maxSweep = 282f
 
 // Scale down uniformly if we overflow the available arc
         val sweepScale =
@@ -517,7 +556,7 @@ fun feelingEmoji(feeling: String): String =
         "happy"       -> "🙂"
         "content"     -> "😌"
         "hopeful"     -> "🌱"
-
+        "frustrated"  -> "😖"
         "anxious"     -> "😰"
         "overwhelmed" -> "😵‍💫"
         "sad"         -> "😞"
@@ -598,6 +637,7 @@ fun deltaLabel(delta: Float): String =
 fun TodayScreen() {
     var entries by remember { mutableStateOf(listOf<LedgerEntry>()) }
     var showSheet by remember { mutableStateOf(false) }
+    var showMenuSheet by remember { mutableStateOf(false) }
     var entryBeingEdited by remember { mutableStateOf<LedgerEntry?>(null) }
     var activeDayKey by remember { mutableStateOf(todayKey()) }
     val baseline = 5.00f
@@ -628,8 +668,8 @@ fun TodayScreen() {
         return
     }
 
-
-
+    var isObsidianConnected by remember { mutableStateOf(false) }
+    var obsidianFolderUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val eventTotal = entries.fold(0f) { acc, e -> acc + e.delta }
     val computedScore = baseline + eventTotal
     val finalScore = reflectionScore ?: computedScore
@@ -647,6 +687,60 @@ fun TodayScreen() {
             .sorted()
     }
     var tagStats by remember { mutableStateOf<Map<String, TagStats>>(emptyMap()) }
+
+    val obsidianFolderLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocumentTree()
+        ) { uri ->
+            if (uri != null) {
+                // Persist permission
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+
+                android.util.Log.d(
+                    "Obsidian",
+                    "Selected folder URI: $uri"
+                )
+
+                obsidianFolderUri = uri
+                isObsidianConnected = true   // ✅ IMMEDIATE UI UPDATE
+
+                coroutineScope.launch {
+                    com.example.mood.data.ObsidianStore.saveFolder(context, uri)
+                }
+
+
+
+            }
+        }
+
+    LaunchedEffect(Unit) {
+        val savedUri =
+            com.example.mood.data.ObsidianStore.loadFolder(context)
+
+        if (savedUri != null) {
+            val hasPermission =
+                context.contentResolver.persistedUriPermissions.any { perm ->
+                    perm.uri == savedUri && perm.isReadPermission && perm.isWritePermission
+                }
+
+            if (hasPermission) {
+                obsidianFolderUri = savedUri
+                isObsidianConnected = true
+            } else {
+                // Permission genuinely lost (user revoked or storage reset)
+                com.example.mood.data.ObsidianStore.clear(context)
+                obsidianFolderUri = null
+                isObsidianConnected = false
+            }
+        }
+    }
+
+
+
 
     LaunchedEffect(activeDayKey) {
         tagStats = LedgerStore.loadTagStats(context)
@@ -738,6 +832,7 @@ fun TodayScreen() {
                     modifier = Modifier.weight(1f)
                 )
 
+                // 📅 Calendar
                 IconButton(onClick = { showCalendar = true }) {
                     Icon(
                         imageVector = Icons.Default.CalendarMonth,
@@ -746,8 +841,16 @@ fun TodayScreen() {
                     )
                 }
 
-
+                // ☰ Menu
+                IconButton(onClick = { showMenuSheet = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Open menu",
+                        tint = Color.White
+                    )
+                }
             }
+
 
             Text(
                 text = LocalDate.parse(activeDayKey).format(todayFormatter),
@@ -853,13 +956,29 @@ fun TodayScreen() {
             drift = if (reflectionScore != null) drift else null,
             tags = orderedTags,
             tagStats = tagStats,
-            onCenterTap = {
-                val date = LocalDate.parse(activeDayKey)
-                trendsWeekStart =
-                    date.with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
+            isObsidianConnected = isObsidianConnected,
+            onCenterTap = { /* unchanged */ },
+            onExportTap = {
+                val folder = obsidianFolderUri
+                if (folder != null) {
+                    writeDayMarkdown(
+                        context = context,
+                        folderUri = folder,
+                        dayKey = activeDayKey,
+                        entriesForDay = entries,
+                        reflectionText = reflectionText,
+                        finalScore = finalScore
+                    )
 
-                showTrends = true
+                } else {
+                    android.util.Log.w(
+                        "Obsidian",
+                        "Export tapped but no folder selected"
+                    )
+                }
             },
+
+
             modifier = Modifier
                 .fillMaxWidth()
                 .height(240.dp)
@@ -867,6 +986,8 @@ fun TodayScreen() {
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 210.dp)
         )
+
+
 
 
 
@@ -941,6 +1062,60 @@ fun TodayScreen() {
             }
         )
     }
+    if (showMenuSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showMenuSheet = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.background
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+
+                Text(
+                    text = "Menu",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color.White
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                ListItem(
+                    headlineContent = { Text("Connect to Obsidian") },
+                    supportingContent = {
+                        Text(
+                            "Choose the folder where .md files will be written",
+                            color = Color.White.copy(alpha = 0.6f)
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        showMenuSheet = false
+                        obsidianFolderLauncher.launch(null)
+                    }
+                )
+
+                ListItem(
+                    headlineContent = { Text("Settings") },
+                    modifier = Modifier.clickable {
+                        showMenuSheet = false
+                        // TODO: settings screen
+                    }
+                )
+
+                Spacer(Modifier.height(16.dp))
+
+                TextButton(
+                    onClick = { showMenuSheet = false },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text("Close")
+                }
+            }
+        }
+    }
 
     // BOTTOM SHEET
     if (showSheet) {
@@ -981,6 +1156,159 @@ fun TodayScreen() {
         )
     }
 }
+
+fun buildDailyMarkdown(
+    dayKey: String,
+    entries: List<LedgerEntry>,
+    reflectionText: String,
+    finalScore: Float
+): String {
+
+    val positives =
+        entries
+            .filter { it.delta > 0f }
+            .sortedByDescending { it.delta }
+
+    val negatives =
+        entries
+            .filter { it.delta < 0f }
+            .sortedBy { it.delta } // more negative first
+
+    val sb = StringBuilder()
+
+    sb.appendLine("### <u>Daily Summary</u>")
+    sb.appendLine()
+
+    // --- Positive Impacts ---
+    sb.appendLine("#### **Positive Impacts**")
+    sb.appendLine()
+
+    if (positives.isEmpty()) {
+        sb.appendLine("_No positive impacts recorded._")
+        sb.appendLine()
+    } else {
+        positives.forEach { entry ->
+            sb.appendLine(
+                ">[!success]- ${entry.title} - ${"%.2f".format(entry.delta)}"
+            )
+
+            if (entry.note.isNotBlank()) {
+                sb.appendLine("> ${entry.note}")
+            }
+
+            sb.appendLine()
+        }
+
+    }
+
+    // --- Negative Impacts ---
+    sb.appendLine("#### **Negative Impacts**")
+    sb.appendLine()
+
+    if (negatives.isEmpty()) {
+        sb.appendLine("_No negative impacts recorded._")
+        sb.appendLine()
+    } else {
+        negatives.forEach { entry ->
+            val callout =
+                if (entry.delta <= -0.75f) "danger" else "error"
+
+            sb.appendLine(
+                ">[!$callout]- ${entry.title} - ${"%.2f".format(kotlin.math.abs(entry.delta))}"
+            )
+
+            if (entry.note.isNotBlank()) {
+                sb.appendLine("> ${entry.note}")
+            }
+
+            sb.appendLine()
+        }
+
+    }
+
+    // --- Reflection ---
+    sb.appendLine("### <u>Daily Reflection</u>")
+    sb.appendLine()
+
+    if (reflectionText.isBlank()) {
+        sb.appendLine("_No reflection recorded._")
+    } else {
+        sb.appendLine(reflectionText)
+    }
+
+    sb.appendLine()
+    sb.appendLine()
+    sb.appendLine("#### Daily Score: ${"%.2f".format(finalScore)}")
+
+    return sb.toString()
+}
+
+fun writeDayMarkdown(
+    context: Context,
+    folderUri: Uri,
+    dayKey: String,
+    entriesForDay: List<LedgerEntry>,
+    reflectionText: String,
+    finalScore: Float
+)
+ {
+    val resolver = context.contentResolver
+    val fileName = "mobile-$dayKey.md"
+
+    try {
+        val treeDocId =
+            android.provider.DocumentsContract.getTreeDocumentId(folderUri)
+
+        val parentUri =
+            android.provider.DocumentsContract.buildDocumentUriUsingTree(
+                folderUri,
+                treeDocId
+            )
+
+        val fileUri =
+            android.provider.DocumentsContract.createDocument(
+                resolver,
+                parentUri,
+                "text/markdown",
+                fileName
+            )
+
+        if (fileUri == null) {
+            android.util.Log.e(
+                "Obsidian",
+                "Failed to create $fileName (null URI)"
+            )
+            return
+        }
+
+        val markdown =
+            buildDailyMarkdown(
+                dayKey = dayKey,
+                entries = entriesForDay,
+                reflectionText = reflectionText,
+                finalScore = finalScore
+            )
+
+        resolver.openOutputStream(fileUri, "w")?.use { stream ->
+            stream.write(markdown.toByteArray())
+        }
+
+
+        android.util.Log.d(
+            "Obsidian",
+            "$fileName written successfully at $fileUri"
+        )
+
+    } catch (e: Exception) {
+        android.util.Log.e(
+            "Obsidian",
+            "Failed to write $fileName",
+            e
+        )
+    }
+}
+
+
 
 @Composable
 private fun Metric(label: String, value: Float) {

@@ -53,6 +53,7 @@ import com.example.mood.data.loadWeeklyMood
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.Brush
 
 
 private val dayFormatter =
@@ -88,7 +89,14 @@ fun WeeklyMoodBarChart(
             strokeWidth = 2.dp.toPx()
         )
 
+        val today = LocalDate.now()
+
         data.forEachIndexed { index, point ->
+
+            if (point.date.isAfter(today)) {
+                return@forEachIndexed
+            }
+
 
             val x =
                 spacing + index * (barWidth + spacing)
@@ -100,15 +108,23 @@ fun WeeklyMoodBarChart(
 
             val barCenterX = x + barWidth / 2f
 
-            val barColor =
+            val baseColor =
                 if (point.score >= baseline)
                     Color(0xFF66BB6A)
                 else
                     Color(0xFFE57373)
 
+            val barBrush =
+                Brush.verticalGradient(
+                    colors = listOf(
+                        baseColor.copy(alpha = 0.95f), // darker bottom
+                        baseColor.copy(alpha = 0.55f)  // lighter top
+                    )
+                )
+
             // ── BAR ─────────────────────────────
             drawRoundRect(
-                color = barColor,
+                brush = barBrush,
                 topLeft = Offset(x, barTop),
                 size = Size(
                     width = barWidth,
@@ -119,6 +135,7 @@ fun WeeklyMoodBarChart(
                     6.dp.toPx()
                 )
             )
+
 
             // ── SCORE ABOVE BAR ─────────────────
             drawIntoCanvas { canvas ->
@@ -189,6 +206,18 @@ fun MoodTrendsScreen(
         mutableStateOf<List<DailyMoodPoint>>(emptyList())
     }
 
+    val today = LocalDate.now()
+
+    val completedDays =
+        data.filter { !it.date.isAfter(today) }
+
+    val weeklyAverage =
+        if (completedDays.isNotEmpty())
+            completedDays.map { it.score }.average().toFloat()
+        else
+            0f
+
+
     LaunchedEffect(weekStart) {
         data = loadWeeklyMood(context, weekStart, baseline)
     }
@@ -243,6 +272,20 @@ fun MoodTrendsScreen(
                 .fillMaxWidth()
                 .height(300.dp)
         )
+
+        Spacer(Modifier.height(12.dp))
+
+        Text(
+            text =
+                if (completedDays.size < 7)
+                    "Weekly Average (so far): %.2f".format(weeklyAverage)
+                else
+                    "Weekly Average: %.2f".format(weeklyAverage),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.75f),
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
+
 
     }
 }
