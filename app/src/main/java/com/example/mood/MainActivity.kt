@@ -89,6 +89,7 @@ import androidx.compose.material.icons.filled.Download
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import java.time.temporal.TemporalAdjusters
 
 
 
@@ -653,7 +654,8 @@ fun TodayScreen() {
         LocalDate.parse(activeDayKey)
 
     val activeWeekStart =
-        activeDate.with(DayOfWeek.SUNDAY)
+        activeDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
+
 
     var showTrends by remember { mutableStateOf(false) }
 
@@ -857,9 +859,6 @@ fun TodayScreen() {
                 style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp),
                 color = Color.White.copy(alpha = 0.65f)
             )
-
-
-            // ENTRIES (boxed)
             // ENTRIES (boxed)
             Box(
                 modifier = Modifier
@@ -957,7 +956,8 @@ fun TodayScreen() {
             tags = orderedTags,
             tagStats = tagStats,
             isObsidianConnected = isObsidianConnected,
-            onCenterTap = { /* unchanged */ },
+            onCenterTap = { trendsWeekStart = activeWeekStart
+                showTrends = true },
             onExportTap = {
                 val folder = obsidianFolderUri
                 if (folder != null) {
@@ -1518,8 +1518,9 @@ fun MonthCalendarView(
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clickable(
-                                        enabled = (hasData || isToday) && !isFuture
-                                    ) {
+                                        enabled = !isFuture
+                                    )
+                                    {
                                         onSelectDay(date)
                                     }
                                 ,
@@ -1533,7 +1534,7 @@ fun MonthCalendarView(
                                     isFuture ->
                                         Color.White.copy(alpha = 0.25f)
                                     else ->
-                                        Color.White.copy(alpha = 0.4f)
+                                        Color.White.copy(alpha = 0.55f)
                                 }
                                 ,
                                 textAlign = TextAlign.Center
