@@ -90,6 +90,17 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import java.time.temporal.TemporalAdjusters
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.withFrameMillis
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import com.example.mood.data.loadBallLayout
+import com.example.mood.data.saveBallLayout
+import androidx.compose.ui.graphics.Brush
+import android.os.Vibrator
+import android.os.VibrationEffect
+import android.os.Build
 
 
 
@@ -111,6 +122,90 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private fun impactOrderIndices(
+    entries: List<LedgerEntry>
+): List<Int> {
+    return entries
+        .mapIndexed { index, entry -> index to entry.delta }
+        .sortedWith(
+            compareByDescending<Pair<Int, Float>> { it.second }
+        )
+        .map { it.first }
+}
+
+
+private fun angularDistance(a: Float, b: Float): Float {
+    val diff = kotlin.math.abs(a - b) % 360f
+    return if (diff > 180f) 360f - diff else diff
+}
+
+private fun normalizeAngle(a: Float): Float =
+    ((a % 360f) + 360f) % 360f
+
+
+private fun DrawScope.drawInfluenceBands(
+    entries: List<LedgerEntry>
+) {
+    if (entries.isEmpty()) return
+
+    val radius = size.minDimension / 2.15f
+    val baseThickness = 10.dp.toPx()
+    val maxExtraThickness = 14.dp.toPx()
+
+    val totalAbs =
+        entries.sumOf { kotlin.math.abs(it.delta).toDouble() }.toFloat()
+            .coerceAtLeast(0.01f)
+
+    var startAngle = -160f
+    val availableSweep = 320f
+
+    entries.forEach { entry ->
+        val weight =
+            kotlin.math.abs(entry.delta) / totalAbs
+
+        val sweep = availableSweep * weight
+
+        val thickness =
+            baseThickness +
+                    (kotlin.math.abs(entry.delta).coerceIn(0f, 2f) / 2f) *
+                    maxExtraThickness
+
+        val color =
+            if (entry.delta >= 0f)
+                Color(0xFF66BB6A)
+            else
+                Color(0xFFE57373)
+
+        drawArc(
+            color = color,
+            startAngle = startAngle,
+            sweepAngle = sweep,
+            useCenter = false,
+            topLeft = Offset(
+                center.x - radius,
+                center.y - radius
+            ),
+            size = Size(
+                radius * 2,
+                radius * 2
+            ),
+            style = Stroke(
+                width = thickness,
+                cap = StrokeCap.Round
+            )
+        )
+
+        startAngle += sweep
+    }
+
+    // Subtle outer guide ring
+    drawCircle(
+        color = Color.White.copy(alpha = 0.12f),
+        radius = radius + baseThickness,
+        style = Stroke(width = 2.dp.toPx())
+    )
+}
+
 
 
 
@@ -120,8 +215,8 @@ fun DailyMoodSeal(
     mood: Float,
     baseline: Float,
     drift: Float?,
-    tags: List<String>,
-    tagStats: Map<String, TagStats>,
+    entries: List<LedgerEntry>,
+    dayKey: String,
     isObsidianConnected: Boolean,
     onCenterTap: () -> Unit,
     onExportTap: () -> Unit,
@@ -130,11 +225,70 @@ fun DailyMoodSeal(
 
 
 
+
  {
-    var lastTouchAngle by remember { mutableStateOf<Float?>(null) }
-    var rotationDeg by remember { mutableStateOf(0f) }
-     var activeTagIndex by remember { mutableStateOf<Int?>(null) }
-     var currentTouchAngle by remember { mutableStateOf<Float?>(null) }
+
+     // --- Ball drag state ---
+     val context = LocalContext.current
+
+
+     val ballAngles = remember(entries) {
+         mutableStateListOf<Float>()
+     }
+
+     val ballVelocities = remember(entries) {
+         mutableStateListOf<Float>()
+     }
+
+     val vibrator =
+         remember {
+             context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+         }
+
+     var lastHapticTime by remember { mutableStateOf(0L) }
+
+
+     LaunchedEffect(entries, dayKey) {
+         ballAngles.clear()
+
+         val saved =
+             loadBallLayout(context, dayKey)
+
+         if (saved != null && saved.size == entries.size) {
+             ballAngles.addAll(saved)
+         } else {
+             val step =
+                 if (entries.isNotEmpty()) 360f / entries.size else 0f
+
+             val orderedIndices = impactOrderIndices(entries)
+
+             orderedIndices.forEachIndexed { visualIndex, entryIndex ->
+                 ballAngles.add(-90f + visualIndex * step)
+             }
+         }
+
+
+         // 🔒 KEEP velocities aligned with balls
+         ballVelocities.clear()
+         repeat(ballAngles.size) {
+             ballVelocities.add(0f)
+         }
+     }
+
+     val ballRadiusDeg = 10f
+     val minSeparationDeg = ballRadiusDeg * 2f
+
+
+
+     var activeBallIndex by remember { mutableStateOf<Int?>(null) }
+
+
+     var lastDragAngle by remember { mutableStateOf<Float?>(null) }
+     var lastDragTime by remember { mutableStateOf<Long?>(null) }
+     var lastFrameTimeNanos by remember { mutableStateOf<Long?>(null) }
+     var peakVelocity by remember { mutableStateOf(0f) }
+
+
 
      Box(
         modifier = modifier,
@@ -143,65 +297,112 @@ fun DailyMoodSeal(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
+                .pointerInput(entries) {
                     detectDragGestures(
                         onDragStart = { offset ->
-                            lastTouchAngle = null
-                        },
-                        onDragEnd = {
-                            lastTouchAngle = null
-                            currentTouchAngle = null
-                            activeTagIndex = null
-                        },
-                        onDragCancel = {
-                            lastTouchAngle = null
-                            currentTouchAngle = null
-                            activeTagIndex = null
-                        },
-                        onDrag = { change, _ ->
-                            val center = Offset(
-                                size.width / 2f,
-                                size.height / 2f
-                            )
+                            val center = Offset(size.width / 2f, size.height / 2f)
+                            val dx = offset.x - center.x
+                            val dy = offset.y - center.y
 
-                            val touch = change.position
+                            val angle =
+                                ((Math.toDegrees(kotlin.math.atan2(dy, dx).toDouble())).toFloat() + 360f) % 360f
 
-                            val angle = Math.toDegrees(
-                                kotlin.math.atan2(
-                                    (touch.y - center.y).toDouble(),
-                                    (touch.x - center.x).toDouble()
-                                )
-                            ).toFloat()
-                            val normalizedAngle = (angle + 360f) % 360f
-                            currentTouchAngle = normalizedAngle
+                            var closestIndex: Int? = null
+                            var closestDistance = Float.MAX_VALUE
 
-                            lastTouchAngle?.let { last ->
-                                var delta = angle - last
-
-                                // Normalize to shortest rotation path
-                                if (delta > 180f) delta -= 360f
-                                if (delta < -180f) delta += 360f
-
-                                rotationDeg += delta
-                                rotationDeg %= 360f
+                            for (i in ballAngles.indices) {
+                                val dist = angularDistance(ballAngles[i], angle)
+                                if (dist < closestDistance) {
+                                    closestDistance = dist
+                                    closestIndex = i
+                                }
                             }
 
-                            lastTouchAngle = angle
+                            activeBallIndex =
+                                if (closestDistance < 24f) closestIndex else null
+
+                            lastDragAngle = angle
+                            lastDragTime = System.currentTimeMillis()
+                        }
+
+                        ,
+                        onDrag = { change, _ ->
+                            activeBallIndex?.let { index ->
+                                val center = Offset(size.width / 2f, size.height / 2f)
+                                val dx = change.position.x - center.x
+                                val dy = change.position.y - center.y
+
+                                val angle =
+                                    ((Math.toDegrees(kotlin.math.atan2(dy, dx).toDouble())).toFloat() + 360f) % 360f
+
+                                val now = System.currentTimeMillis()
+
+                                val lastAngle = lastDragAngle
+                                val lastTime = lastDragTime
+
+                                if (lastAngle != null && lastTime != null) {
+                                    val dt = (now - lastTime).coerceAtLeast(1)
+                                    val da = angularDistance(angle, lastAngle)
+
+                                    // direction-aware velocity
+                                    val direction =
+                                        if (((angle - lastAngle + 540f) % 360f) - 180f > 0) 1f else -1f
+
+                                    // velocity in degrees per SECOND
+                                    val velocity =
+                                        direction * (da / dt) * 500f
+
+                                    // Track the strongest recent velocity
+                                    if (kotlin.math.abs(velocity) > kotlin.math.abs(peakVelocity)) {
+                                        peakVelocity = velocity.coerceIn(-720f, 720f)
+                                    }
+
+
+                                }
+
+                                ballAngles[index] = angle
+                                lastDragAngle = angle
+                                lastDragTime = now
+                            }
+                        }
+                        ,
+                        onDragEnd = {
+                            activeBallIndex?.let { index ->
+                                ballVelocities[index] = peakVelocity
+                            }
+
+                            // Persist layout
+                            CoroutineScope(Dispatchers.IO).launch {
+                                saveBallLayout(
+                                    context,
+                                    dayKey,
+                                    ballAngles.toList()
+                                )
+
+                            }
+
+                            peakVelocity = 0f
+                            activeBallIndex = null
+                            lastDragAngle = null
+                            lastDragTime = null
+                        }
+
+
+                        ,
+                        onDragCancel = {
+                            activeBallIndex = null
                         }
                     )
                 }
 
+
         )
         {
 
-            drawMoodSeal(
-                tags = tags,
-                tagStats = tagStats,
-                rotationDeg = rotationDeg,
-                touchAngle = currentTouchAngle,
-                activeTagIndex = activeTagIndex,
-                onActiveTagChange = { activeTagIndex = it }
-            )
+            drawTealHalo()
+            drawEntryDots(entries, ballAngles)
+
+
 
 
         }
@@ -292,7 +493,111 @@ fun DailyMoodSeal(
          }
 
     }
+     LaunchedEffect(entries.size) {
+         while (true) {
+             withFrameNanos { now ->
+
+                 val last = lastFrameTimeNanos
+                 lastFrameTimeNanos = now
+                 if (last == null) return@withFrameNanos
+
+                 val deltaSeconds = (now - last) / 1_000_000_000f
+
+                 // --- 1️⃣ Integrate motion ---
+                 ballAngles.indices.forEach { i ->
+                     ballAngles[i] =
+                         normalizeAngle(
+                             ballAngles[i] + ballVelocities[i] * deltaSeconds
+                         )
+                 }
+
+                 // --- 2️⃣ Resolve collisions (solid beads) ---
+                 for (i in 0 until ballAngles.size) {
+                     for (j in i + 1 until ballAngles.size) {
+                         val a = ballAngles[i]
+                         val b = ballAngles[j]
+
+                         val dist = angularDistance(a, b)
+
+
+                         if (dist < minSeparationDeg) {
+
+                             val overlap = minSeparationDeg - dist
+
+                             val direction =
+                                 if (((b - a + 540f) % 360f) - 180f > 0) 1f else -1f
+
+                             // Push apart
+                             ballAngles[i] =
+                                 normalizeAngle(ballAngles[i] - direction * overlap / 2f)
+                             ballAngles[j] =
+                                 normalizeAngle(ballAngles[j] + direction * overlap / 2f)
+
+                             // Momentum exchange
+                             val vi = ballVelocities[i]
+                             val vj = ballVelocities[j]
+
+                             ballVelocities[i] = vj * 0.9f
+                             ballVelocities[j] = vi * 0.9f
+
+                             // --- HAPTICS ---
+                             val relativeVelocity = kotlin.math.abs(vi - vj)
+                             val normalizedImpact =
+                                 (relativeVelocity / 720f).coerceIn(0f, 1f)
+
+                             val nowMs = System.currentTimeMillis()
+                             if (
+                                 normalizedImpact > 0.15f &&
+                                 nowMs - lastHapticTime > 40
+                             ) {
+                                 vibrateImpact(vibrator, normalizedImpact)
+                                 lastHapticTime = nowMs
+                             }
+
+                         }
+
+
+
+                     }
+                 }
+
+                 // --- 3️⃣ Friction ---
+                 ballVelocities.indices.forEach { i ->
+                     ballVelocities[i] *= 0.97f
+                     if (kotlin.math.abs(ballVelocities[i]) < 0.05f) {
+                         ballVelocities[i] = 0f
+                     }
+                 }
+             }
+         }
+     }
+
+
+
+
+ }
+fun vibrateImpact(
+    vibrator: Vibrator,
+    strength: Float
+) {
+    if (!vibrator.hasVibrator()) return
+
+    val clamped = strength.coerceIn(0f, 1f)
+
+    val durationMs = (8 + clamped * 20).toLong()
+    val amplitude  = (40 + clamped * 180).toInt()
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        vibrator.vibrate(
+            VibrationEffect.createOneShot(durationMs, amplitude)
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        vibrator.vibrate(durationMs)
+    }
 }
+
+
 
 private fun DrawScope.drawMoodSeal(
     tags: List<String>,
@@ -334,13 +639,9 @@ private fun DrawScope.drawMoodSeal(
 // Move arc inward so it surrounds text
     val arcRadius = textRadius - bandThickness / 2f
     // Outer circle
-    drawCircle(
-        color = Color.White.copy(alpha = 0.18f),
-        radius = radius,
-        style = Stroke(width = strokeWidth)
-    )
 
-    if (tags.isEmpty()) return
+
+        if (tags.isEmpty()) return
 
 
         val baseStartAngle = -160f + rotationDeg
@@ -536,6 +837,110 @@ private fun DrawScope.drawMoodSeal(
 
 }
 
+private fun DrawScope.drawTealHalo() {
+
+    val ringRadius = size.minDimension / 2.15f
+    val ringThickness = 26.dp.toPx()
+
+    // Single, consistent light model
+    val tubeGradient = Brush.linearGradient(
+        colors = listOf(
+            LedgerTeal.copy(alpha = 0.95f),   // light edge (top-left)
+            LedgerTeal.copy(alpha = 0.75f),
+            LedgerTeal.copy(alpha = 0.55f),
+            LedgerTeal.copy(alpha = 0.80f)    // shadow edge (bottom-right)
+        ),
+        start = Offset(
+            center.x - ringRadius,
+            center.y - ringRadius
+        ),
+        end = Offset(
+            center.x + ringRadius,
+            center.y + ringRadius
+        )
+    )
+
+    drawCircle(
+        brush = tubeGradient,
+        radius = ringRadius,
+        style = Stroke(
+            width = ringThickness,
+            cap = StrokeCap.Round
+        )
+    )
+}
+
+
+
+private fun DrawScope.drawEntryDots(
+    entries: List<LedgerEntry>,
+    angles: List<Float>
+) {
+    if (entries.isEmpty()) return
+    if (angles.size < entries.size) return
+
+
+    val ringRadius = size.minDimension / 2.15f
+    val ringThickness = 26.dp.toPx()
+
+    val tubeCenterRadius = ringRadius
+    val dotRadius = 9.dp.toPx()
+
+    entries.forEachIndexed { index, entry ->
+        val angleDeg = angles[index]
+        val angleRad = Math.toRadians(angleDeg.toDouble())
+
+        val x =
+            center.x + kotlin.math.cos(angleRad).toFloat() * tubeCenterRadius
+        val y =
+            center.y + kotlin.math.sin(angleRad).toFloat() * tubeCenterRadius
+
+        val baseColor = deltaColor(entry.delta)
+
+        // 1️⃣ Soft shadow (lifts marble off tube)
+        drawCircle(
+            color = Color.Black.copy(alpha = 0.28f),
+            radius = dotRadius * 1.05f,
+            center = Offset(
+                x + 2.dp.toPx(),
+                y + 2.dp.toPx()
+            )
+        )
+
+        // 2️⃣ Glassy marble body (radial gradient)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    baseColor.copy(alpha = 0.95f),
+                    baseColor.copy(alpha = 0.75f),
+                    Color.Black.copy(alpha = 0.25f)
+                ),
+                center = Offset(
+                    x - dotRadius * 0.35f,
+                    y - dotRadius * 0.35f
+                ),
+                radius = dotRadius * 1.3f
+            ),
+            radius = dotRadius,
+            center = Offset(x, y)
+        )
+
+        // 3️⃣ Specular highlight (glass reflection)
+        drawCircle(
+            color = Color.White.copy(alpha = 0.35f),
+            radius = dotRadius * 0.35f,
+            center = Offset(
+                x - dotRadius * 0.4f,
+                y - dotRadius * 0.4f
+            )
+        )
+    }
+
+}
+
+
+
+
 fun orderTagsByImpact(
     todaysTags: List<String>,
     tagStats: Map<String, TagStats>
@@ -665,10 +1070,16 @@ fun TodayScreen() {
             onBack = {
                 showTrends = false
                 trendsWeekStart = null
+            },
+            onSelectDay = { selectedDate ->
+                activeDayKey = selectedDate.toString()
+                showTrends = false
+                trendsWeekStart = null
             }
         )
         return
     }
+
 
     var isObsidianConnected by remember { mutableStateOf(false) }
     var obsidianFolderUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -953,11 +1364,13 @@ fun TodayScreen() {
             mood = finalScore,
             baseline = baseline,
             drift = if (reflectionScore != null) drift else null,
-            tags = orderedTags,
-            tagStats = tagStats,
+            entries = entries,
+            dayKey = activeDayKey,
             isObsidianConnected = isObsidianConnected,
-            onCenterTap = { trendsWeekStart = activeWeekStart
-                showTrends = true },
+            onCenterTap = {
+                trendsWeekStart = activeWeekStart
+                showTrends = true
+            },
             onExportTap = {
                 val folder = obsidianFolderUri
                 if (folder != null) {

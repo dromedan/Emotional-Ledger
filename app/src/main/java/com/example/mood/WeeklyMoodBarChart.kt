@@ -54,6 +54,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.Brush
+import com.example.mood.ui.theme.LedgerGold
+
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.graphics.toArgb
 
 
 private val dayFormatter =
@@ -68,14 +73,43 @@ private val dateFormatter =
 fun WeeklyMoodBarChart(
     data: List<DailyMoodPoint>,
     baseline: Float = 5.0f,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onDaySelected: (LocalDate) -> Unit
 ) {
+
     val max = 10f
     val min = 0f
+    val today = LocalDate.now()
 
-    Canvas(modifier = modifier) {
+    val visibleData =
+        data.filter { !it.date.isAfter(today) }
 
-        val barWidth = size.width / (data.size * 1.6f)
+
+    Canvas(
+         modifier = modifier.pointerInput(data) {
+             detectTapGestures { offset ->
+
+                 val barWidth = size.width / (visibleData.size * 1.6f)
+
+                 val spacing = barWidth * 0.6f
+
+                 val index =
+                     ((offset.x - spacing) / (barWidth + spacing))
+                         .toInt()
+
+                 if (index in visibleData.indices) {
+                     val point = visibleData[index]
+
+                     if (!point.date.isAfter(LocalDate.now())) {
+                         onDaySelected(point.date)
+                     }
+                 }
+             }
+         }
+     ) {
+
+
+     val barWidth = size.width / (data.size * 1.6f)
         val spacing = barWidth * 0.6f
 
         val baselineY =
@@ -91,11 +125,7 @@ fun WeeklyMoodBarChart(
 
         val today = LocalDate.now()
 
-        data.forEachIndexed { index, point ->
-
-            if (point.date.isAfter(today)) {
-                return@forEachIndexed
-            }
+        visibleData.forEachIndexed { index, point ->
 
 
             val x =
@@ -108,11 +138,15 @@ fun WeeklyMoodBarChart(
 
             val barCenterX = x + barWidth / 2f
 
+            val isToday = point.date == today
+
             val baseColor =
                 if (point.score >= baseline)
                     Color(0xFF66BB6A)
                 else
                     Color(0xFFE57373)
+
+
 
             val barBrush =
                 Brush.verticalGradient(
@@ -162,8 +196,14 @@ fun WeeklyMoodBarChart(
                     isAntiAlias = true
                     textAlign = android.graphics.Paint.Align.CENTER
                     textSize = 11.sp.toPx()
-                    color = android.graphics.Color.WHITE
-                    alpha = 160
+                    color =
+                        if (isToday)
+                            LedgerGold.toArgb()
+                        else
+                            android.graphics.Color.WHITE
+
+                    alpha = if (isToday) 220 else 160
+
                 }
 
                 val dayY = barBottom + 14.dp.toPx()
@@ -191,8 +231,10 @@ fun WeeklyMoodBarChart(
 @Composable
 fun MoodTrendsScreen(
     initialWeekStart: LocalDate,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onSelectDay: (LocalDate) -> Unit
 ) {
+
     val context = LocalContext.current
     val baseline = 5.0f
 
@@ -270,8 +312,13 @@ fun MoodTrendsScreen(
             baseline = baseline,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(300.dp)
+                .height(300.dp),
+            onDaySelected = { selectedDate ->
+                onSelectDay(selectedDate)
+            }
         )
+
+
 
         Spacer(Modifier.height(12.dp))
 

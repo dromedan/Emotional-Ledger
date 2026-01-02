@@ -112,8 +112,10 @@ fun AddEntrySheet(
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {
         SheetContent(
+            isEditing = existingEntry != null,
             delta = delta,
             onDeltaChange = { delta = it },
+
 
             title = title,
             onTitleChange = { title = it },
@@ -368,8 +370,10 @@ fun tagColor(tag: String, tagStats: Map<String, TagStats>): Color {
 
 @Composable
 fun SheetContent(
+    isEditing: Boolean,
     delta: Float,
     onDeltaChange: (Float) -> Unit,
+
 
     title: String,
     onTitleChange: (String) -> Unit,
@@ -421,12 +425,13 @@ fun SheetContent(
             )
             Spacer(Modifier.width(12.dp))
             Text(
-                text = "New Entry",
+                text = if (isEditing) "Edit Entry" else "New Entry",
                 style = MaterialTheme.typography.headlineSmall.copy(
                     color = Color.White,
                     fontSize = 22.sp
                 )
             )
+
         }
 
         Spacer(Modifier.height(28.dp))
@@ -580,7 +585,11 @@ fun SheetContent(
                 contentColor = Color.Black
             )
         ) {
-            Text("Save Entry", fontSize = 17.sp)
+            Text(
+                if (isEditing) "Update Entry" else "Save Entry",
+                fontSize = 17.sp
+            )
+
         }
 
         Spacer(Modifier.height(14.dp))

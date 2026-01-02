@@ -24,6 +24,9 @@ private val Context.dataStore by preferencesDataStore(name = "mood_ledger")
 private val TAG_STATS_KEY =
     stringPreferencesKey("tag_stats")
 
+private val BALL_LAYOUTS_KEY =
+    stringPreferencesKey("ball_layouts")
+
 @OptIn(InternalSerializationApi::class)
 object LedgerStore {
 
@@ -33,6 +36,10 @@ object LedgerStore {
 
     private val REFLECTIONS_BY_DAY_KEY =
         stringPreferencesKey("reflections_by_day")
+
+
+
+
 
     /* ---------------- ENTRIES ---------------- */
 
@@ -231,6 +238,38 @@ suspend fun loadWeeklyMood(
             date = day,
             score = final
         )
+    }
+}
+@OptIn(InternalSerializationApi::class)
+suspend fun loadBallLayout(
+    context: Context,
+    dayKey: String
+): List<Float>? {
+    val prefs = context.dataStore.data.first()
+    val json = prefs[BALL_LAYOUTS_KEY] ?: return null
+
+    val map: Map<String, List<Float>> =
+        Json.decodeFromString(json)
+
+    return map[dayKey]
+}
+
+@OptIn(InternalSerializationApi::class)
+suspend fun saveBallLayout(
+    context: Context,
+    dayKey: String,
+    angles: List<Float>
+) {
+    context.dataStore.edit { prefs ->
+        val existingJson = prefs[BALL_LAYOUTS_KEY]
+        val map =
+            if (existingJson != null)
+                Json.decodeFromString<Map<String, List<Float>>>(existingJson)
+            else
+                emptyMap()
+
+        prefs[BALL_LAYOUTS_KEY] =
+            Json.encodeToString(map + (dayKey to angles))
     }
 }
 
