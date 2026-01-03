@@ -15,6 +15,7 @@ import com.example.mood.model.TagStats
 import kotlinx.serialization.InternalSerializationApi
 import android.util.Log
 import java.time.LocalDate
+import java.time.DayOfWeek
 
 import com.example.mood.model.DailyMoodPoint
 
@@ -240,6 +241,105 @@ suspend fun loadWeeklyMood(
         )
     }
 }
+
+suspend fun loadMonthlyMood(
+    context: Context,
+    monthStart: LocalDate,
+    baseline: Float = 5.0f
+): List<DailyMoodPoint> {
+
+    val firstWeekStart =
+        monthStart.with(java.time.DayOfWeek.SUNDAY)
+            .takeIf { !it.isAfter(monthStart) }
+            ?: monthStart.minusWeeks(1).with(java.time.DayOfWeek.SUNDAY)
+
+
+    val weeks = (0..5).mapNotNull { offset ->
+        val weekStart = firstWeekStart.plusWeeks(offset.toLong())
+
+        // Stop if week is completely outside the month
+        if (weekStart.month != monthStart.month &&
+            weekStart.plusDays(6).month != monthStart.month
+        ) return@mapNotNull null
+
+        weekStart
+    }
+
+    return weeks.map { weekStart ->
+        val days =
+            loadWeeklyMood(context, weekStart, baseline)
+                .filter { it.date.month == monthStart.month }
+
+        val avg =
+            if (days.isNotEmpty())
+                days.map { it.score }.average().toFloat()
+            else
+                baseline
+
+        DailyMoodPoint(
+            date = weekStart, // represents the week
+            score = avg
+        )
+    }
+}
+suspend fun loadYearlyMood(
+    context: Context,
+    year: Int,
+    baseline: Float = 5.0f
+): List<DailyMoodPoint> {
+
+    val today = LocalDate.now()
+
+    return (1..12).mapNotNull { month ->
+        val monthStart = LocalDate.of(year, month, 1)
+        val monthEnd = monthStart.plusMonths(1).minusDays(1)
+
+        // Skip future months
+        if (monthStart.isAfter(today)) return@mapNotNull null
+
+        val daysInMonth =
+            generateSequence(monthStart) { it.plusDays(1) }
+                .takeWhile { !it.isAfter(monthEnd) && !it.isAfter(today) }
+                .toList()
+
+        if (daysInMonth.isEmpty()) return@mapNotNull null
+
+        val scores = mutableListOf<Float>()
+
+        for (day in daysInMonth) {
+            val dayKey = day.toString()
+
+            val entries =
+                LedgerStore.loadEntriesForDay(context, dayKey)
+
+            val reflection =
+                LedgerStore.loadDailyReflection(context, dayKey)
+
+            val eventTotal =
+                entries.sumOf { it.delta.toDouble() }.toFloat()
+
+            val computed = baseline + eventTotal
+
+            val final =
+                if (reflection != null)
+                    computed + reflection.drift
+                else
+                    computed
+
+            scores += final
+        }
+
+        if (scores.isEmpty()) return@mapNotNull null
+
+        DailyMoodPoint(
+            date = monthStart,
+            score = scores.average().toFloat()
+        )
+    }
+}
+
+
+
 @OptIn(InternalSerializationApi::class)
 suspend fun loadBallLayout(
     context: Context,
