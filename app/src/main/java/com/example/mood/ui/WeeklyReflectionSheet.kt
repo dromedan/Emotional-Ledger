@@ -27,10 +27,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WeeklyReflectionSheet(
+    title: String,
     initialText: String,
     onSave: (String) -> Unit,
     onDismiss: () -> Unit
-) {
+)
+ {
     var text by remember { mutableStateOf(initialText) }
 
     ModalBottomSheet(
@@ -46,7 +48,7 @@ fun WeeklyReflectionSheet(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                "Weekly Reflection",
+                title,
                 style = MaterialTheme.typography.headlineSmall
             )
 

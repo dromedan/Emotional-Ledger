@@ -1,3 +1,4 @@
+@file:Suppress("NewApi")
 package com.example.mood
 
 
@@ -69,8 +70,16 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.example.mood.model.MonthlyReflection
 
+import androidx.compose.material.icons.filled.Download
+import com.example.mood.export.exportWeeklyReflectionToObsidian
+import com.example.mood.export.exportMonthlyReflectionToObsidian
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Edit
 
+import android.net.Uri
 
 
 
@@ -303,6 +312,14 @@ fun MoodTrendsScreen(
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    var obsidianFolder by remember { mutableStateOf<Uri?>(null) }
+
+    LaunchedEffect(Unit) {
+        obsidianFolder =
+            com.example.mood.data.ObsidianStore.loadFolder(context)
+    }
+
+    val obsidianConnected = obsidianFolder != null
 
     val baseline = 5.0f
 
@@ -414,6 +431,8 @@ fun MoodTrendsScreen(
 
     var weeklyReflection by remember { mutableStateOf<String>("") }
     var showWeeklyReflectionSheet by remember { mutableStateOf(false) }
+    var monthlyReflection by remember { mutableStateOf("") }
+    var showMonthlyReflectionSheet by remember { mutableStateOf(false) }
 
 
     LaunchedEffect(range, visibleMonth, visibleYear) {
@@ -476,6 +495,18 @@ fun MoodTrendsScreen(
                             weekStart.toString()
                         )?.note ?: ""
             }
+        if (range == TrendsRange.MONTH) {
+            val monthKey =
+                visibleMonth.format(
+                    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM")
+                )
+
+            monthlyReflection =
+                LedgerStore
+                    .loadMonthlyReflection(context, monthKey)
+                    ?.note ?: ""
+        }
+
     }
 
 
@@ -657,39 +688,201 @@ fun MoodTrendsScreen(
                         )
 
                         Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    color = Color.White.copy(alpha = 0.04f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = Color.White.copy(alpha = 0.12f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .padding(16.dp)
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = weeklyReflection,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White.copy(alpha = 0.85f)
-                            )
-                        }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 190.dp)   // 👈 caps growth
+                                    .background(
+                                        color = Color.White.copy(alpha = 0.04f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .border(
+                                        width = 1.dp,
+                                        color = Color.White.copy(alpha = 0.12f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .padding(
+                                        start = 16.dp,
+                                        top = 16.dp,
+                                        end = 16.dp,
+                                        bottom = 36.dp
+                                    )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .verticalScroll(rememberScrollState())
+                                ) {
+                                    Text(
+                                        text = weeklyReflection,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color.White.copy(alpha = 0.85f)
+                                    )
+                                }
+                            }
 
 
-                        TextButton(
-                            onClick = { showWeeklyReflectionSheet = true }
-                        ) {
-                            Text("Edit Reflection")
+                            Row(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .offset(x = 6.dp, y = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+
+                                // ✎ Edit
+                                IconButton(
+                                    onClick = { showWeeklyReflectionSheet = true }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Edit Reflection",
+                                        tint = Color.White.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                // ⬇ Export (only if Obsidian connected)
+                                obsidianFolder?.let { folderUri ->
+                                    IconButton(
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                exportWeeklyReflectionToObsidian(
+                                                    context = context,
+                                                    folderUri = folderUri,
+                                                    weekStart = weekStart,
+                                                    content = weeklyReflection
+                                                )
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Download,
+                                            contentDescription = "Export to Obsidian",
+                                            tint = LedgerGold.copy(alpha = 0.8f),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+
                         }
                     }
                 }
             }
 
             TrendsRange.MONTH -> {
-                Text("Monthly Average: %.2f".format(visibleValue ?: 0f))
+                Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
+
+                    Text(
+                        text = "Monthly Average: %.2f".format(visibleValue ?: 0f),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.White
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (monthlyReflection.isBlank()) {
+                        TextButton(
+                            onClick = { showMonthlyReflectionSheet = true }
+                        ) {
+                            Text("Add Monthly Reflection")
+                        }
+                    } else {
+                        Text(
+                            text = "Monthly Reflection",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.55f)
+                        )
+
+                        Box(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 190.dp)   // 👈 caps growth
+                                    .background(
+                                        color = Color.White.copy(alpha = 0.04f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .border(
+                                        width = 1.dp,
+                                        color = Color.White.copy(alpha = 0.12f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .padding(
+                                        start = 16.dp,
+                                        top = 16.dp,
+                                        end = 16.dp,
+                                        bottom = 36.dp
+                                    )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .verticalScroll(rememberScrollState())
+                                ) {
+                                    Text(
+                                        text = monthlyReflection,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color.White.copy(alpha = 0.85f)
+                                    )
+                                }
+                            }
+
+
+                            Row(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .offset(x = 6.dp, y = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+
+                                // ✎ Edit
+                                IconButton(
+                                    onClick = { showMonthlyReflectionSheet = true }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Edit Reflection",
+                                        tint = Color.White.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                // ⬇ Export (only if Obsidian connected)
+                                obsidianFolder?.let { folderUri ->
+                                    IconButton(
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                exportMonthlyReflectionToObsidian(
+                                                    context = context,
+                                                    folderUri = folderUri,
+                                                    visibleMonth = visibleMonth,
+                                                    content = monthlyReflection
+                                                )
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Download,
+                                            contentDescription = "Export to Obsidian",
+                                            tint = LedgerGold.copy(alpha = 0.8f),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                        }
+                    }
+                }
             }
+
 
             TrendsRange.YEAR -> {
                 Text("Yearly Average: %.2f".format(visibleValue ?: 0f))
@@ -699,9 +892,11 @@ fun MoodTrendsScreen(
     }
     if (showWeeklyReflectionSheet) {
         WeeklyReflectionSheet(
+            title = "Weekly Reflection",
             initialText = weeklyReflection,
             onSave = { text ->
-                weeklyReflection = text
+
+            weeklyReflection = text
 
                 coroutineScope.launch {
                     LedgerStore.saveWeeklyReflection(
@@ -717,6 +912,35 @@ fun MoodTrendsScreen(
             },
             onDismiss = {
                 showWeeklyReflectionSheet = false
+            }
+        )
+    }
+    if (showMonthlyReflectionSheet) {
+        val monthKey =
+            visibleMonth.format(
+                java.time.format.DateTimeFormatter.ofPattern("yyyy-MM")
+            )
+
+        WeeklyReflectionSheet(
+            title = "Monthly Reflection",
+            initialText = monthlyReflection,
+            onSave = { text ->
+                monthlyReflection = text
+
+                coroutineScope.launch {
+                    LedgerStore.saveMonthlyReflection(
+                        context,
+                        MonthlyReflection(
+                            monthKey = monthKey,
+                            note = text
+                        )
+                    )
+                }
+
+                showMonthlyReflectionSheet = false
+            },
+            onDismiss = {
+                showMonthlyReflectionSheet = false
             }
         )
     }

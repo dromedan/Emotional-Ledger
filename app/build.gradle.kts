@@ -69,7 +69,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
-
+    implementation("androidx.documentfile:documentfile:1.0.1")
 
     // Material 3
     implementation("androidx.compose.material3:material3")

@@ -19,6 +19,7 @@ import java.time.DayOfWeek
 import com.example.mood.model.WeeklyReflection
 
 import com.example.mood.model.DailyMoodPoint
+import com.example.mood.model.MonthlyReflection
 
 
 
@@ -41,6 +42,10 @@ object LedgerStore {
 
     private val WEEKLY_REFLECTIONS_KEY =
         stringPreferencesKey("weekly_reflections")
+
+    private val MONTHLY_REFLECTIONS_KEY =
+        stringPreferencesKey("monthly_reflections")
+
 
 
     /* ---------------- ENTRIES ---------------- */
@@ -318,6 +323,39 @@ object LedgerStore {
             )
         }
     }
+
+    suspend fun loadMonthlyReflection(
+        context: Context,
+        monthKey: String
+    ): MonthlyReflection? {
+        val prefs = context.dataStore.data.first()
+        val json = prefs[MONTHLY_REFLECTIONS_KEY] ?: return null
+
+        val map: Map<String, MonthlyReflection> =
+            Json.decodeFromString(json)
+
+        return map[monthKey]
+    }
+
+    suspend fun saveMonthlyReflection(
+        context: Context,
+        reflection: MonthlyReflection
+    ) {
+        context.dataStore.edit { prefs ->
+            val existingJson = prefs[MONTHLY_REFLECTIONS_KEY]
+            val map =
+                if (existingJson != null)
+                    Json.decodeFromString<Map<String, MonthlyReflection>>(existingJson)
+                else
+                    emptyMap()
+
+            prefs[MONTHLY_REFLECTIONS_KEY] =
+                Json.encodeToString(map + (reflection.monthKey to reflection))
+        }
+    }
+
+
+
 
     suspend fun loadYearlyMood(
         context: Context,
