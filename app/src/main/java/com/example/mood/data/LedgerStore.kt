@@ -16,6 +16,7 @@ import kotlinx.serialization.InternalSerializationApi
 import android.util.Log
 import java.time.LocalDate
 import java.time.DayOfWeek
+import com.example.mood.model.WeeklyReflection
 
 import com.example.mood.model.DailyMoodPoint
 
@@ -38,8 +39,8 @@ object LedgerStore {
     private val REFLECTIONS_BY_DAY_KEY =
         stringPreferencesKey("reflections_by_day")
 
-
-
+    private val WEEKLY_REFLECTIONS_KEY =
+        stringPreferencesKey("weekly_reflections")
 
 
     /* ---------------- ENTRIES ---------------- */
@@ -126,6 +127,7 @@ object LedgerStore {
                 Json.encodeToString(updated)
         }
     }
+
     @OptIn(InternalSerializationApi::class)
     suspend fun loadTagStats(
         context: Context
@@ -134,6 +136,7 @@ object LedgerStore {
         val json = prefs[TAG_STATS_KEY] ?: return emptyMap()
         return Json.decodeFromString(json)
     }
+
     private suspend fun saveTagStats(
         context: Context,
         stats: Map<String, TagStats>
@@ -142,6 +145,7 @@ object LedgerStore {
             prefs[TAG_STATS_KEY] = Json.encodeToString(stats)
         }
     }
+
     suspend fun applyEntryToTagStats(
         context: Context,
         entry: LedgerEntry,
@@ -186,6 +190,7 @@ object LedgerStore {
             }
         )
     }
+
     suspend fun removeEntryFromTagStats(
         context: Context,
         entry: LedgerEntry
@@ -207,106 +212,46 @@ object LedgerStore {
         saveTagStats(context, cleaned)
     }
 
-}
-suspend fun loadWeeklyMood(
-    context: Context,
-    weekStart: LocalDate,
-    baseline: Float = 5.0f
-): List<DailyMoodPoint> {
 
-    return (0..6).map { offset ->
-        val day = weekStart.plusDays(offset.toLong())
-        val dayKey = day.toString()
+    suspend fun loadWeeklyReflection(
+        context: Context,
+        weekStart: String
+    ): WeeklyReflection? {
+        val prefs = context.dataStore.data.first()
+        val json = prefs[WEEKLY_REFLECTIONS_KEY] ?: return null
 
-        val entries =
-            LedgerStore.loadEntriesForDay(context, dayKey)
+        val map: Map<String, WeeklyReflection> =
+            Json.decodeFromString(json)
 
-        val reflection =
-            LedgerStore.loadDailyReflection(context, dayKey)
-
-        val eventTotal =
-            entries.sumOf { it.delta.toDouble() }.toFloat()
-
-        val computed = baseline + eventTotal
-
-        val final =
-            if (reflection != null)
-                computed + reflection.drift
-            else
-                computed
-
-        DailyMoodPoint(
-            date = day,
-            score = final
-        )
-    }
-}
-
-suspend fun loadMonthlyMood(
-    context: Context,
-    monthStart: LocalDate,
-    baseline: Float = 5.0f
-): List<DailyMoodPoint> {
-
-    val firstWeekStart =
-        monthStart.with(java.time.DayOfWeek.SUNDAY)
-            .takeIf { !it.isAfter(monthStart) }
-            ?: monthStart.minusWeeks(1).with(java.time.DayOfWeek.SUNDAY)
-
-
-    val weeks = (0..5).mapNotNull { offset ->
-        val weekStart = firstWeekStart.plusWeeks(offset.toLong())
-
-        // Stop if week is completely outside the month
-        if (weekStart.month != monthStart.month &&
-            weekStart.plusDays(6).month != monthStart.month
-        ) return@mapNotNull null
-
-        weekStart
+        return map[weekStart]
     }
 
-    return weeks.map { weekStart ->
-        val days =
-            loadWeeklyMood(context, weekStart, baseline)
-                .filter { it.date.month == monthStart.month }
+    suspend fun saveWeeklyReflection(
+        context: Context,
+        reflection: WeeklyReflection
+    ) {
+        context.dataStore.edit { prefs ->
+            val existingJson = prefs[WEEKLY_REFLECTIONS_KEY]
+            val map =
+                if (existingJson != null)
+                    Json.decodeFromString<Map<String, WeeklyReflection>>(existingJson)
+                else
+                    emptyMap()
 
-        val avg =
-            if (days.isNotEmpty())
-                days.map { it.score }.average().toFloat()
-            else
-                baseline
-
-        DailyMoodPoint(
-            date = weekStart, // represents the week
-            score = avg
-        )
+            prefs[WEEKLY_REFLECTIONS_KEY] =
+                Json.encodeToString(map + (reflection.weekStart to reflection))
+        }
     }
-}
-suspend fun loadYearlyMood(
-    context: Context,
-    year: Int,
-    baseline: Float = 5.0f
-): List<DailyMoodPoint> {
 
-    val today = LocalDate.now()
 
-    return (1..12).mapNotNull { month ->
-        val monthStart = LocalDate.of(year, month, 1)
-        val monthEnd = monthStart.plusMonths(1).minusDays(1)
+    suspend fun loadWeeklyMood(
+        context: Context,
+        weekStart: LocalDate,
+        baseline: Float = 5.0f
+    ): List<DailyMoodPoint> {
 
-        // Skip future months
-        if (monthStart.isAfter(today)) return@mapNotNull null
-
-        val daysInMonth =
-            generateSequence(monthStart) { it.plusDays(1) }
-                .takeWhile { !it.isAfter(monthEnd) && !it.isAfter(today) }
-                .toList()
-
-        if (daysInMonth.isEmpty()) return@mapNotNull null
-
-        val scores = mutableListOf<Float>()
-
-        for (day in daysInMonth) {
+        return (0..6).map { offset ->
+            val day = weekStart.plusDays(offset.toLong())
             val dayKey = day.toString()
 
             val entries =
@@ -326,50 +271,142 @@ suspend fun loadYearlyMood(
                 else
                     computed
 
-            scores += final
+            DailyMoodPoint(
+                date = day,
+                score = final
+            )
+        }
+    }
+
+    suspend fun loadMonthlyMood(
+        context: Context,
+        monthStart: LocalDate,
+        baseline: Float = 5.0f
+    ): List<DailyMoodPoint> {
+
+        val firstWeekStart =
+            monthStart.with(java.time.DayOfWeek.SUNDAY)
+                .takeIf { !it.isAfter(monthStart) }
+                ?: monthStart.minusWeeks(1).with(java.time.DayOfWeek.SUNDAY)
+
+
+        val weeks = (0..5).mapNotNull { offset ->
+            val weekStart = firstWeekStart.plusWeeks(offset.toLong())
+
+            // Stop if week is completely outside the month
+            if (weekStart.month != monthStart.month &&
+                weekStart.plusDays(6).month != monthStart.month
+            ) return@mapNotNull null
+
+            weekStart
         }
 
-        if (scores.isEmpty()) return@mapNotNull null
+        return weeks.map { weekStart ->
+            val days =
+                loadWeeklyMood(context, weekStart, baseline)
+                    .filter { it.date.month == monthStart.month }
 
-        DailyMoodPoint(
-            date = monthStart,
-            score = scores.average().toFloat()
-        )
+            val avg =
+                if (days.isNotEmpty())
+                    days.map { it.score }.average().toFloat()
+                else
+                    baseline
+
+            DailyMoodPoint(
+                date = weekStart, // represents the week
+                score = avg
+            )
+        }
     }
-}
+
+    suspend fun loadYearlyMood(
+        context: Context,
+        year: Int,
+        baseline: Float = 5.0f
+    ): List<DailyMoodPoint> {
+
+        val today = LocalDate.now()
+
+        return (1..12).mapNotNull { month ->
+            val monthStart = LocalDate.of(year, month, 1)
+            val monthEnd = monthStart.plusMonths(1).minusDays(1)
+
+            // Skip future months
+            if (monthStart.isAfter(today)) return@mapNotNull null
+
+            val daysInMonth =
+                generateSequence(monthStart) { it.plusDays(1) }
+                    .takeWhile { !it.isAfter(monthEnd) && !it.isAfter(today) }
+                    .toList()
+
+            if (daysInMonth.isEmpty()) return@mapNotNull null
+
+            val scores = mutableListOf<Float>()
+
+            for (day in daysInMonth) {
+                val dayKey = day.toString()
+
+                val entries =
+                    LedgerStore.loadEntriesForDay(context, dayKey)
+
+                val reflection =
+                    LedgerStore.loadDailyReflection(context, dayKey)
+
+                val eventTotal =
+                    entries.sumOf { it.delta.toDouble() }.toFloat()
+
+                val computed = baseline + eventTotal
+
+                val final =
+                    if (reflection != null)
+                        computed + reflection.drift
+                    else
+                        computed
+
+                scores += final
+            }
+
+            if (scores.isEmpty()) return@mapNotNull null
+
+            DailyMoodPoint(
+                date = monthStart,
+                score = scores.average().toFloat()
+            )
+        }
+    }
 
 
+    @OptIn(InternalSerializationApi::class)
+    suspend fun loadBallLayout(
+        context: Context,
+        dayKey: String
+    ): List<Float>? {
+        val prefs = context.dataStore.data.first()
+        val json = prefs[BALL_LAYOUTS_KEY] ?: return null
 
-@OptIn(InternalSerializationApi::class)
-suspend fun loadBallLayout(
-    context: Context,
-    dayKey: String
-): List<Float>? {
-    val prefs = context.dataStore.data.first()
-    val json = prefs[BALL_LAYOUTS_KEY] ?: return null
+        val map: Map<String, List<Float>> =
+            Json.decodeFromString(json)
 
-    val map: Map<String, List<Float>> =
-        Json.decodeFromString(json)
+        return map[dayKey]
+    }
 
-    return map[dayKey]
-}
+    @OptIn(InternalSerializationApi::class)
+    suspend fun saveBallLayout(
+        context: Context,
+        dayKey: String,
+        angles: List<Float>
+    ) {
+        context.dataStore.edit { prefs ->
+            val existingJson = prefs[BALL_LAYOUTS_KEY]
+            val map =
+                if (existingJson != null)
+                    Json.decodeFromString<Map<String, List<Float>>>(existingJson)
+                else
+                    emptyMap()
 
-@OptIn(InternalSerializationApi::class)
-suspend fun saveBallLayout(
-    context: Context,
-    dayKey: String,
-    angles: List<Float>
-) {
-    context.dataStore.edit { prefs ->
-        val existingJson = prefs[BALL_LAYOUTS_KEY]
-        val map =
-            if (existingJson != null)
-                Json.decodeFromString<Map<String, List<Float>>>(existingJson)
-            else
-                emptyMap()
-
-        prefs[BALL_LAYOUTS_KEY] =
-            Json.encodeToString(map + (dayKey to angles))
+            prefs[BALL_LAYOUTS_KEY] =
+                Json.encodeToString(map + (dayKey to angles))
+        }
     }
 }
 

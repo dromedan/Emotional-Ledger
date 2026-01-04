@@ -43,7 +43,7 @@ import java.time.format.DateTimeFormatter
 
 import com.example.mood.ui.theme.LedgerTeal
 import com.example.mood.ui.theme.LedgerGold
-import com.example.mood.util.snapToQuarter
+
 import com.example.mood.ui.DailyReflectionSheet
 import com.example.mood.model.DailyReflection
 import com.example.mood.util.todayKey
@@ -61,9 +61,6 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.filled.CalendarMonth
 import com.example.mood.model.TagStats
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -71,8 +68,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.foundation.Canvas
-import androidx.compose.ui.graphics.nativeCanvas
+
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.Offset
@@ -88,19 +84,21 @@ import android.content.Intent
 import androidx.compose.material.icons.filled.Download
 import android.content.Context
 import android.net.Uri
-import android.provider.DocumentsContract
+import kotlinx.coroutines.launch
+
 import java.time.temporal.TemporalAdjusters
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.withFrameMillis
+
 import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import com.example.mood.data.loadBallLayout
-import com.example.mood.data.saveBallLayout
+
+
 import androidx.compose.ui.graphics.Brush
 import android.os.Vibrator
 import android.os.VibrationEffect
 import android.os.Build
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 
 
 
@@ -252,7 +250,8 @@ fun DailyMoodSeal(
          ballAngles.clear()
 
          val saved =
-             loadBallLayout(context, dayKey)
+             LedgerStore.loadBallLayout(context, dayKey)
+
 
          if (saved != null && saved.size == entries.size) {
              ballAngles.addAll(saved)
@@ -373,11 +372,12 @@ fun DailyMoodSeal(
 
                             // Persist layout
                             CoroutineScope(Dispatchers.IO).launch {
-                                saveBallLayout(
+                                LedgerStore.saveBallLayout(
                                     context,
                                     dayKey,
                                     ballAngles.toList()
                                 )
+
 
                             }
 
@@ -625,11 +625,6 @@ private fun DrawScope.drawMoodSeal(
         val radius = size.minDimension / 2.2f
     val strokeWidth = 3.dp.toPx()
     val textRadius = radius
-
-
-
-
-
 
 
 
@@ -1058,6 +1053,10 @@ fun TodayScreen() {
     val activeDate =
         LocalDate.parse(activeDayKey)
 
+    val today = LocalDate.now()
+    val isToday = activeDate == today
+
+
     val activeWeekStart =
         activeDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
 
@@ -1348,7 +1347,56 @@ fun TodayScreen() {
 
 
 
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+
+                // ← Previous day (always allowed)
+                Text(
+                    text = "‹",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.08f))
+                        .clickable {
+                            activeDayKey =
+                                activeDate.minusDays(1).toString()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+
+
+                // → Next day (only if NOT today)
+                if (!isToday) {
+                    Text(
+                        text = "›",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.08f))
+                            .clickable {
+                                activeDayKey =
+                                    activeDate.plusDays(1).toString()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+
+                } else {
+                    // Keep spacing stable when next arrow is hidden
+                    Spacer(modifier = Modifier.width(24.dp))
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
+
 
 
 

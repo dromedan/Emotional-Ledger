@@ -49,7 +49,7 @@ import java.time.LocalDate
 // ─────────────────────────────────────────────
 // Your project helpers
 // ─────────────────────────────────────────────
-import com.example.mood.data.loadWeeklyMood
+
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -59,8 +59,18 @@ import com.example.mood.ui.theme.LedgerGold
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.graphics.toArgb
-import com.example.mood.data.loadMonthlyMood
-import com.example.mood.data.loadYearlyMood
+
+import com.example.mood.model.WeeklyReflection
+import com.example.mood.ui.WeeklyReflectionSheet
+import androidx.compose.runtime.rememberCoroutineScope
+import com.example.mood.data.LedgerStore
+import kotlinx.coroutines.launch
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+
+
 
 
 
@@ -78,6 +88,7 @@ private val monthFormatter =
 enum class TrendsRange {
     WEEK, MONTH, YEAR
 }
+
 
 
 
@@ -291,7 +302,11 @@ fun MoodTrendsScreen(
 ) {
 
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
     val baseline = 5.0f
+
+
 
     @OptIn(kotlinx.serialization.InternalSerializationApi::class)
     suspend fun computeDailyAverage(
@@ -331,6 +346,8 @@ fun MoodTrendsScreen(
             scores.average().toFloat()
         else
             null
+
+
     }
 
 
@@ -395,6 +412,10 @@ fun MoodTrendsScreen(
 
     var visibleValue by remember { mutableStateOf<Float?>(null) }
 
+    var weeklyReflection by remember { mutableStateOf<String>("") }
+    var showWeeklyReflectionSheet by remember { mutableStateOf(false) }
+
+
     LaunchedEffect(range, visibleMonth, visibleYear) {
         visibleValue =
             when (range) {
@@ -440,11 +461,20 @@ fun MoodTrendsScreen(
         data =
             when (range) {
                 TrendsRange.WEEK ->
-                    loadWeeklyMood(context, weekStart, baseline)
+                    LedgerStore.loadWeeklyMood(context, weekStart, baseline)
                 TrendsRange.MONTH ->
-                    loadMonthlyMood(context, visibleMonth, baseline)
+                    LedgerStore.loadMonthlyMood(context, visibleMonth, baseline)
                 TrendsRange.YEAR ->
-                    loadYearlyMood(context, visibleYear, baseline)
+                    LedgerStore.loadYearlyMood(context, visibleYear, baseline)
+            }
+
+        if (range == TrendsRange.WEEK) {
+                weeklyReflection =
+                    com.example.mood.data.LedgerStore
+                        .loadWeeklyReflection(
+                            context,
+                            weekStart.toString()
+                        )?.note ?: ""
             }
     }
 
@@ -464,7 +494,8 @@ fun MoodTrendsScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, null)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+
             }
 
             Spacer(Modifier.width(8.dp))
@@ -599,42 +630,96 @@ fun MoodTrendsScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        Text(
-            text =
-                when (range) {
-                    TrendsRange.WEEK ->
-                        "Weekly Average: %.2f".format(weeklyAverage)
+        when (range) {
+            TrendsRange.WEEK -> {
+                Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
 
-                    TrendsRange.MONTH -> {
-                        visibleValue?.let {
-                            val isCurrent =
-                                visibleMonth.year == today.year &&
-                                        visibleMonth.month == today.month
+                    Text(
+                        text = "Weekly Average: %.2f".format(weeklyAverage),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                            if (isCurrent)
-                                "Current Month: %.2f".format(it)
-                            else
-                                "${visibleMonth.format(
-                                    java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy")
-                                )}: %.2f".format(it)
-                        } ?: "Monthly Weekly Averages"
+
+
+                    if (weeklyReflection.isBlank()) {
+                        TextButton(
+                            onClick = { showWeeklyReflectionSheet = true }
+                        ) {
+                            Text("Add Weekly Reflection")
+                        }
+                    } else {
+                        Text(
+                            text = "Weekly Reflection",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.55f)
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    color = Color.White.copy(alpha = 0.04f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = Color.White.copy(alpha = 0.12f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = weeklyReflection,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White.copy(alpha = 0.85f)
+                            )
+                        }
+
+
+                        TextButton(
+                            onClick = { showWeeklyReflectionSheet = true }
+                        ) {
+                            Text("Edit Reflection")
+                        }
                     }
+                }
+            }
 
-                    TrendsRange.YEAR -> {
-                        visibleValue?.let {
-                            val isCurrent =
-                                visibleYear == today.year
+            TrendsRange.MONTH -> {
+                Text("Monthly Average: %.2f".format(visibleValue ?: 0f))
+            }
 
-                            if (isCurrent)
-                                "Current Year: %.2f".format(it)
-                            else
-                                "${visibleYear}: %.2f".format(it)
-                        } ?: "Monthly Averages by Year"
-                    }
-                },
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color.White.copy(alpha = 0.75f),
-            modifier = Modifier.align(Alignment.CenterHorizontally)
+            TrendsRange.YEAR -> {
+                Text("Yearly Average: %.2f".format(visibleValue ?: 0f))
+            }
+        }
+
+    }
+    if (showWeeklyReflectionSheet) {
+        WeeklyReflectionSheet(
+            initialText = weeklyReflection,
+            onSave = { text ->
+                weeklyReflection = text
+
+                coroutineScope.launch {
+                    LedgerStore.saveWeeklyReflection(
+                        context = context,
+                        reflection = WeeklyReflection(
+                            weekStart = weekStart.toString(),
+                            note = text
+                        )
+                    )
+                }
+
+                showWeeklyReflectionSheet = false
+            },
+            onDismiss = {
+                showWeeklyReflectionSheet = false
+            }
         )
     }
+
+
 }
