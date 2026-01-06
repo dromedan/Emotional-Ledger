@@ -1,3 +1,4 @@
+@file:Suppress("NewApi")
 @file:OptIn(kotlinx.serialization.InternalSerializationApi::class)
 package com.example.mood
 
@@ -51,7 +52,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.text.style.TextAlign
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.DropdownMenu
@@ -99,6 +100,13 @@ import android.os.Vibrator
 import android.os.VibrationEffect
 import android.os.Build
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material.icons.filled.ShowChart
+import com.example.mood.ui.InfluencesScreen
+import com.example.mood.ui.TestCardScreen
+
 
 
 
@@ -1033,6 +1041,152 @@ fun deltaLabel(delta: Float): String =
         else -> "— 0.00"
     }
 
+
+private suspend fun loadTagStatsForRange(
+    context: Context,
+    start: LocalDate,
+    end: LocalDate
+): List<TagStats> {
+    val stats = mutableMapOf<String, TagStats>()
+
+    var day = start
+    while (!day.isAfter(end)) {
+        val dayKey = day.toString()
+        val entries = LedgerStore.loadEntriesForDay(context, dayKey)
+
+        entries.forEach { entry ->
+            entry.tags.forEach { tag ->
+                val current = stats[tag]
+                stats[tag] =
+                    if (current == null)
+                        TagStats(tag, 1, entry.delta)
+                    else
+                        current.copy(
+                            count = current.count + 1,
+                            totalDelta = current.totalDelta + entry.delta
+                        )
+            }
+        }
+
+        day = day.plusDays(1)
+    }
+
+    return stats.values
+        .sortedWith(
+            compareByDescending<TagStats> { it.count }
+                .thenByDescending { it.average }
+        )
+}
+
+
+
+
+@Composable
+private fun InfluenceSection(
+    title: String,
+    tags: List<TagStats>
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Color.White.copy(alpha = 0.04f),
+                RoundedCornerShape(16.dp)
+            )
+            .padding(16.dp)
+    ) {
+
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall.copy(
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.6.sp
+            ),
+            color = Color.White.copy(alpha = 0.7f)
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        tags.take(5).forEachIndexed { index, stat ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                // Tag + count grouped together
+                // Tag (flexible)
+                Text(
+                    text = stat.tag,
+                    modifier = Modifier.weight(1f),
+                    color = deltaColor(stat.average),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1
+                )
+
+// Count (fixed-width, vertically aligned)
+                Text(
+                    text = stat.count.toString(),
+                    modifier = Modifier.width(24.dp),
+                    textAlign = TextAlign.End,
+                    color = Color.White.copy(alpha = 0.55f),
+                    style = MaterialTheme.typography.labelMedium
+                )
+
+                Spacer(Modifier.width(12.dp))
+
+
+                // Average impact (fixed-width, right-aligned)
+                Text(
+                    text = String.format("%+.2f", stat.average),
+                    modifier = Modifier.width(56.dp),
+                    textAlign = TextAlign.End,
+                    color = deltaColor(stat.average),
+                    fontWeight = FontWeight.Medium
+                )
+
+            }
+
+            if (index < tags.take(5).lastIndex) {
+                Spacer(Modifier.height(10.dp))
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun InfluenceRow(
+    name: String,
+    count: Int,
+    avg: Float
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+
+        Text(
+            text = name,
+            modifier = Modifier.weight(1f),
+            color = Color.White,
+            maxLines = 1
+        )
+
+        Text(
+            text = "×$count",
+            color = Color.White.copy(alpha = 0.6f),
+            fontSize = 12.sp,
+            modifier = Modifier.padding(end = 6.dp)
+        )
+
+        Text(
+            text = String.format("%.2f", avg),
+            color = deltaColor(avg),
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodayScreen() {
@@ -1062,6 +1216,24 @@ fun TodayScreen() {
 
 
     var showTrends by remember { mutableStateOf(false) }
+    var showInfluences by remember { mutableStateOf(false) }
+    var showTestCard by remember { mutableStateOf(false) }
+
+
+
+    if (showInfluences) {
+        InfluencesScreen(
+            onBack = { showInfluences = false }
+        )
+        return
+    }
+    if (showTestCard) {
+        TestCardScreen(
+            onBack = { showTestCard = false }
+        )
+        return
+    }
+
 
     if (showTrends && trendsWeekStart != null) {
         MoodTrendsScreen(
@@ -1078,6 +1250,14 @@ fun TodayScreen() {
         )
         return
     }
+
+
+
+
+
+
+
+
 
 
     var isObsidianConnected by remember { mutableStateOf(false) }
@@ -1217,15 +1397,16 @@ fun TodayScreen() {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(
                     start = 24.dp,
                     end = 24.dp,
-                    top = 24.dp,
+                    top = 0.dp,   // reduced because statusBars already adds space
                     bottom = 356.dp
-                )
-            ,
+                ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+
 
 
 // HEADER (title + menu)
@@ -1253,14 +1434,27 @@ fun TodayScreen() {
                     )
                 }
 
-                // ☰ Menu
+        // 📊 Analytics
+                IconButton(onClick = {
+                    showInfluences = true
+                }) {
+
+                    Icon(
+                        imageVector = Icons.Default.ShowChart,
+                        contentDescription = "Open analytics",
+                        tint = Color.White
+                    )
+                }
+
+        // ⋮ Menu
                 IconButton(onClick = { showMenuSheet = true }) {
                     Icon(
-                        imageVector = Icons.Default.Menu,
+                        imageVector = Icons.Default.MoreVert,
                         contentDescription = "Open menu",
                         tint = Color.White
                     )
                 }
+
             }
 
 
@@ -1565,6 +1759,21 @@ fun TodayScreen() {
                         // TODO: settings screen
                     }
                 )
+
+                ListItem(
+                    headlineContent = { Text("Test Card Playground") },
+                    supportingContent = {
+                        Text(
+                            "Experimental animated card interactions",
+                            color = Color.White.copy(alpha = 0.6f)
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        showMenuSheet = false
+                        showTestCard = true
+                    }
+                )
+
 
                 Spacer(Modifier.height(16.dp))
 
