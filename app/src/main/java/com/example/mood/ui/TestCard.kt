@@ -23,6 +23,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import com.example.mood.R
 import androidx.compose.ui.graphics.luminance
+import com.example.mood.model.InfluenceCardModel
+import com.example.mood.model.CardPolarity
+import com.example.mood.model.CardRank
+import androidx.compose.ui.draw.alpha
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.clip
 
 
 
@@ -31,6 +38,15 @@ private val CardGreenBackground = Color(0xFF21392D)
 private val CardGreenSurface    = Color(0xFF16261D)   // inner surface
 private val CardGreenAccent     = Color(0xFF66BB6A)   // green
 private val CardGreenAccentDark = Color(0xFF388E3C)   // deep green
+
+private val CardRedBackground = Color(0xFF3A1F1F)
+
+private val CardRedSurface    = Color(0xFF261616)
+private val CardRedAccent     = Color(0xFFEF5350)
+private val CardRedAccentDark = Color(0xFFC62828)
+
+
+
 
 @Composable
 fun TestCardScreen(
@@ -72,8 +88,29 @@ fun TestCardScreen(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            LiftingTestCard()
+            val sampleCard = remember {
+                InfluenceCardModel(
+                    name = "Coding",
+                    polarity = CardPolarity.GREEN,
+                    deepGreenCount = 3,
+                    greenCount = 2,
+                    redCount = 0,
+                    deepRedCount = 0,
+                    imageResId = R.drawable.coding_image,
+                    imagePath = null,
+                    type = "Activity - Hobby",
+
+                    subType = null,
+                    rank = CardRank.COMMON,
+                    averageImpact = 0.65f,
+                    description = "Translating ideas into structured, functional systems through focused problem-solving."
+                )
+            }
+
+
+            InfluenceGeneratedCard(card = sampleCard)
         }
+
 
     }
 }
@@ -135,8 +172,11 @@ private fun LiftingTestCard() {
 
                 InfluenceSummary(
                     deepGreenCount = 3,
-                    greenCount = 2
+                    greenCount = 2,
+                    redCount = 0,
+                    deepRedCount = 0
                 )
+
 
 
 
@@ -145,16 +185,21 @@ private fun LiftingTestCard() {
             Spacer(Modifier.height(10.dp))
 
             // ─── Art Window ───────────────────────────
+        val artShape = RoundedCornerShape(10.dp)
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(140.dp)
+                .clip(artShape)
                 .background(
                     CardGreenAccentDark.copy(alpha = 0.25f),
-                    RoundedCornerShape(10.dp)
+                    artShape
                 )
         ) {
-            Image(
+
+
+        Image(
                 painter = painterResource(id = R.drawable.coding_image),
                 contentDescription = "Coding activity",
                 modifier = Modifier.fillMaxSize(),
@@ -322,24 +367,46 @@ private fun InfluenceGroup(
 @Composable
 private fun InfluenceSummary(
     deepGreenCount: Int,
-    greenCount: Int
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
+    greenCount: Int,
+    redCount: Int,
+    deepRedCount: Int
+)
+ {
+     Row(
+         horizontalArrangement = Arrangement.spacedBy(6.dp),
+         verticalAlignment = Alignment.CenterVertically
+     ) {
 
-        InfluenceCount(
-            count = deepGreenCount,
-            color = Color(0xFF388E3C) // deep green
-        )
+         if (deepGreenCount > 0) {
+             InfluenceCount(
+                 count = deepGreenCount,
+                 color = CardGreenAccentDark
+             )
+         }
 
-        InfluenceCount(
-            count = greenCount,
-            color = Color(0xFF66BB6A) // green
-        )
-    }
-}
+         if (greenCount > 0) {
+             InfluenceCount(
+                 count = greenCount,
+                 color = CardGreenAccent
+             )
+         }
+
+         if (redCount > 0) {
+             InfluenceCount(
+                 count = redCount,
+                 color = CardRedAccent
+             )
+         }
+
+         if (deepRedCount > 0) {
+             InfluenceCount(
+                 count = deepRedCount,
+                 color = CardRedAccentDark
+             )
+         }
+     }
+
+ }
 
 @Composable
 private fun InfluenceCount(
@@ -361,6 +428,250 @@ private fun InfluenceCount(
             style = MaterialTheme.typography.labelSmall,
             color = textColor
         )
+    }
+}
+@Composable
+fun InfluenceGeneratedCard(
+    card: InfluenceCardModel,
+    onEditClick: (InfluenceCardModel) -> Unit = {}
+) {
+
+    val backgroundColor =
+        if (card.polarity == CardPolarity.GREEN)
+            CardGreenBackground
+        else
+            CardRedBackground
+
+    val surfaceColor =
+        if (card.polarity == CardPolarity.GREEN)
+            CardGreenSurface
+        else
+            CardRedSurface
+
+    val accentDark =
+        if (card.polarity == CardPolarity.GREEN)
+            CardGreenAccentDark
+        else
+            CardRedAccentDark
+
+
+    val rankColor =
+        when (card.rank) {
+            CardRank.COMMON -> Color.White
+            CardRank.UNCOMMON -> Color(0xFF90CAF9) // light blue
+            CardRank.RARE -> Color(0xFFFFD54F)     // gold
+            CardRank.LEGENDARY -> Color(0xFFEF5350) // red
+        }
+
+
+    val artShape = RoundedCornerShape(10.dp)
+
+
+
+    val localInteractionSource = remember { MutableInteractionSource() }
+
+
+    val isPressed by localInteractionSource.collectIsPressedAsState()
+
+    val elevation by animateDpAsState(
+        targetValue = if (isPressed) 20.dp else 6.dp,
+        label = "cardElevation"
+    )
+
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 1.03f else 1f,
+        label = "cardScale"
+    )
+
+    Card(
+        onClick = { },
+        modifier = Modifier
+            .size(width = 260.dp, height = 380.dp)
+            .scale(scale),
+
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = elevation
+        ),
+        colors = CardDefaults.cardColors(
+            containerColor = backgroundColor
+        ),
+        interactionSource = localInteractionSource,
+        shape = RoundedCornerShape(20.dp)
+    ) {
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp)
+        ) {
+
+            // ─── Header ───────────────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        surfaceColor,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = card.name
+                        .lowercase()
+                        .split(" ")
+                        .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } },
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+
+                InfluenceSummary(
+                    deepGreenCount = card.deepGreenCount,
+                    greenCount = card.greenCount,
+                    redCount = card.redCount,
+                    deepRedCount = card.deepRedCount
+                )
+
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            // ─── Art Window ───────────────────────────
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(140.dp)
+                    .clip(artShape)
+                    .background(
+                        accentDark.copy(alpha = 0.25f),
+                        artShape
+                    )
+            ) {
+
+
+            val imageBitmap = remember(card.imagePath) {
+                    card.imagePath
+                        ?.let { path ->
+                            runCatching {
+                                android.graphics.BitmapFactory.decodeFile(path)
+                            }.getOrNull()
+                        }
+                }
+
+                if (imageBitmap != null) {
+                    Image(
+                        bitmap = imageBitmap.asImageBitmap(),
+                        contentDescription = card.name,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(artShape),
+                        contentScale = ContentScale.Crop
+                    )
+
+                } else {
+                    Image(
+                        painter = painterResource(id = card.imageResId),
+                        contentDescription = card.name,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(artShape),
+                        contentScale = ContentScale.Crop
+                    )
+
+
+                }
+
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // ─── Type + Rank Line ─────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val typeLabel =
+                    if (!card.subType.isNullOrBlank())
+                        "${card.type} — ${card.subType}"
+                    else
+                        card.type
+
+                Text(
+                    text = typeLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.7f)
+                )
+
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                Text(
+                    text = card.rank.name.lowercase()
+                        .replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = rankColor
+                )
+
+            }
+
+            Spacer(Modifier.height(6.dp))
+            Divider(color = Color.White.copy(alpha = 0.15f))
+            Spacer(Modifier.height(6.dp))
+
+            // ─── Rules + Data Box ─────────────────────
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(170.dp)
+                    .background(
+                        surfaceColor,
+                        RoundedCornerShape(10.dp)
+                    )
+                    .padding(12.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Average Impact ${"%+.2f".format(card.averageImpact)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.7f)
+                    )
+
+                    Divider(color = Color.White.copy(alpha = 0.12f))
+
+                    Box(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Text(
+                            text = card.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(end = 24.dp, bottom = 20.dp)
+                        )
+
+                        IconButton(
+                            onClick = { onEditClick(card) },
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .size(20.dp)
+                                .alpha(0.55f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit influence",
+                                tint = Color.White
+                            )
+                        }
+                    }
+
+
+                }
+            }
+
+            Spacer(Modifier.weight(1f))
+        }
     }
 }
 

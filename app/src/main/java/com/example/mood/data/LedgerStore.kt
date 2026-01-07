@@ -20,12 +20,17 @@ import com.example.mood.model.WeeklyReflection
 
 import com.example.mood.model.DailyMoodPoint
 import com.example.mood.model.MonthlyReflection
+import com.example.mood.model.InfluenceOverride
 
 
 
 private val Context.dataStore by preferencesDataStore(name = "mood_ledger")
 private val TAG_STATS_KEY =
     stringPreferencesKey("tag_stats")
+
+private val INFLUENCE_OVERRIDES_KEY =
+    stringPreferencesKey("influence_overrides")
+
 
 private val BALL_LAYOUTS_KEY =
     stringPreferencesKey("ball_layouts")
@@ -45,7 +50,6 @@ object LedgerStore {
 
     private val MONTHLY_REFLECTIONS_KEY =
         stringPreferencesKey("monthly_reflections")
-
 
 
     /* ---------------- ENTRIES ---------------- */
@@ -355,8 +359,6 @@ object LedgerStore {
     }
 
 
-
-
     suspend fun loadYearlyMood(
         context: Context,
         year: Int,
@@ -446,8 +448,31 @@ object LedgerStore {
                 Json.encodeToString(map + (dayKey to angles))
         }
     }
+    suspend fun loadInfluenceOverrides(
+        context: Context
+    ): Map<String, InfluenceOverride> {
+        val prefs = context.dataStore.data.first()
+        val json = prefs[INFLUENCE_OVERRIDES_KEY] ?: return emptyMap()
+        return Json.decodeFromString(json)
+    }
+
+    suspend fun saveInfluenceOverride(
+        context: Context,
+        override: InfluenceOverride
+    ) {
+        context.dataStore.edit { prefs ->
+            val existing =
+                prefs[INFLUENCE_OVERRIDES_KEY]
+                    ?.let {
+                        Json.decodeFromString<Map<String, InfluenceOverride>>(it)
+                    }
+                    ?: emptyMap()
+
+            prefs[INFLUENCE_OVERRIDES_KEY] =
+                Json.encodeToString(
+                    existing + (override.tag to override)
+                )
+        }
+    }
+
 }
-
-
-
-
