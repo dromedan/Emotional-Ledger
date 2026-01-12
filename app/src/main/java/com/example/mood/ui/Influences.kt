@@ -302,10 +302,7 @@ fun InfluencesScreen(
                             influenceOverrides[stat.tag]?.type.orEmpty()
 
                         val displayName =
-                            stat.tag
-                                .lowercase()
-                                .split(" ")
-                                .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } } +
+                            formatInfluenceName(stat.tag) +
                                     if (effectiveType.isBlank()) " •" else ""
 
 
@@ -521,8 +518,32 @@ fun InfluencesScreen(
             InfluenceEditSheet(
                 card = editingCard!!,
                 onDone = { updated ->
+                    val oldName = editingCard!!.name
+                    val newName = updated.name
+
+                    if (oldName != newName) {
+                        scope.launch {
+                            LedgerStore.renameTag(
+                                context = context,
+                                oldTag = oldName,
+                                newTag = newName
+                            )
+
+                            // 🔁 IMMEDIATELY refresh visible tag list
+                            allTags =
+                                LedgerStore
+                                    .loadTagStats(context)
+                                    .values
+                                    .sortedBy { it.tag.lowercase() }
+
+                            // Clear selection to avoid dangling old tag
+                            selectedInfluence = null
+                        }
+                    }
+
+
                     val override = InfluenceOverride(
-                        tag = updated.name,
+                        tag = newName,
                         type = normalizeCategory(updated.type),
                         subType = updated.subType?.trim(),
                         description = updated.description,
@@ -532,14 +553,19 @@ fun InfluencesScreen(
 
 
 
+
                     scope.launch {
                         LedgerStore.saveInfluenceOverride(context, override)
                         influenceOverrides =
                             influenceOverrides + (override.tag to override)
+
                     }
 
 
+
                     editingCard = null
+                    selectedInfluence = null
+
 
 
                 }
@@ -569,6 +595,7 @@ fun InfluenceEditSheet(
     card: InfluenceCardModel,
     onDone: (InfluenceCardModel) -> Unit
 ) {
+    var name by remember { mutableStateOf(card.name) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -655,6 +682,16 @@ fun InfluenceEditSheet(
             text = "Edit Influence",
             style = MaterialTheme.typography.headlineSmall
         )
+
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("Name") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+
 
         var typeExpanded by remember { mutableStateOf(false) }
         var showNewTypeDialog by remember { mutableStateOf(false) }
@@ -845,12 +882,14 @@ fun InfluenceEditSheet(
                 onClick = {
                     onDone(
                         card.copy(
+                            name = name.trim(),
                             type = type,
                             subType = subType.ifBlank { null },
                             description = description,
                             imagePath = imagePath
                         )
                     )
+
                 }
             ) {
                 Text("Update")
@@ -967,5 +1006,19 @@ private fun normalizeCardArt(
         outFile.absolutePath
     }.getOrNull()
 }
+internal fun formatInfluenceName(raw: String): String {
+    return raw
+        .split(" ")
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { word ->
+            if (word.all { it.isUpperCase() }) {
+                word
+            } else {
+                word.lowercase()
+                    .replaceFirstChar { it.uppercase() }
+            }
+        }
+}
+
 
 

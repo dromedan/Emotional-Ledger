@@ -517,13 +517,11 @@ fun InfluenceGeneratedCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = card.name
-                        .lowercase()
-                        .split(" ")
-                        .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } },
+                    text = formatInfluenceName(card.name),
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleMedium
                 )
+
 
 
                 InfluenceSummary(

@@ -414,6 +414,24 @@ object LedgerStore {
             )
         }
     }
+    suspend fun deleteInfluenceOverride(
+        context: Context,
+        tag: String
+    ) {
+        context.dataStore.edit { prefs ->
+            val existing =
+                prefs[INFLUENCE_OVERRIDES_KEY]
+                    ?.let {
+                        Json.decodeFromString<Map<String, InfluenceOverride>>(it)
+                    }
+                    ?: emptyMap()
+
+            if (tag !in existing) return@edit
+
+            prefs[INFLUENCE_OVERRIDES_KEY] =
+                Json.encodeToString(existing - tag)
+        }
+    }
 
 
     @OptIn(InternalSerializationApi::class)
@@ -474,5 +492,69 @@ object LedgerStore {
                 )
         }
     }
+    suspend fun renameTag(
+        context: Context,
+        oldTag: String,
+        newTag: String
+    ) {
+        if (oldTag == newTag) return
+
+        val days = loadDaysWithEntries(context)
+
+        days.forEach { dayKey ->
+            val entries = loadEntriesForDay(context, dayKey)
+
+            var changed = false
+
+            val updatedEntries =
+                entries.map { entry ->
+                    if (oldTag in entry.tags) {
+                        changed = true
+                        entry.copy(
+                            tags = entry.tags.map {
+                                if (it == oldTag) newTag else it
+                            }
+                        )
+                    } else {
+                        entry
+                    }
+                }
+
+            if (changed) {
+                saveEntriesForDay(context, dayKey, updatedEntries)
+            }
+
+        }
+
+        // Move influence override if it exists
+        val overrides = loadInfluenceOverrides(context)
+        val existing = overrides[oldTag]
+
+        if (existing != null) {
+            deleteInfluenceOverride(context, oldTag)
+            saveInfluenceOverride(
+                context,
+                existing.copy(tag = newTag)
+            )
+        }
+        // ---- Move TagStats ----
+        val stats = loadTagStats(context).toMutableMap()
+        val oldStats = stats.remove(oldTag)
+
+        if (oldStats != null) {
+            val merged =
+                stats[newTag]?.let { existingNew ->
+                    existingNew.copy(
+                        count = existingNew.count + oldStats.count,
+                        totalDelta = existingNew.totalDelta + oldStats.totalDelta
+                    )
+                } ?: oldStats.copy(tag = newTag)
+
+            stats[newTag] = merged
+            saveTagStats(context, stats)
+        }
+
+    }
 
 }
+
