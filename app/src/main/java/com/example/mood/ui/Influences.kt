@@ -47,17 +47,26 @@ enum class InfluenceSort {
     AZ,
     COUNT,
     INTENSITY,
-    TOTAL
+    TOTAL;
+
+    fun displayName(): String =
+        when (this) {
+            AZ -> "Alphabetical"
+            COUNT -> "Most Frequent"
+            INTENSITY -> "Average Impact"
+            TOTAL -> "Total Impact"
+        }
 }
 
-private val INFLUENCE_TYPES =
-    listOf(
-        "Person",
-        "Activity",
-        "Responsibility",
-        "Environment",
-        "Emotion"
-    )
+
+
+
+enum class TimeScale {
+    ALL_TIME,
+    WEEK,
+    MONTH,
+    YEAR
+}
 
 
 
@@ -72,10 +81,25 @@ fun InfluencesScreen(
     var influenceOverrides by remember {
         mutableStateOf<Map<String, InfluenceOverride>>(emptyMap())
     }
+    val sortInactiveColor = Color.White.copy(alpha = 0.65f)
+    val sortPrimaryColor = LedgerGold          // Most → Least / A → Z
+    val sortReverseColor = Color(0xFF2EC4B6)   // Teal
+
 
     var allTags by remember { mutableStateOf<List<TagStats>>(emptyList()) }
-    var sortMode by remember { mutableStateOf(InfluenceSort.AZ) }
-    var sortAscending by remember { mutableStateOf(true) }
+    var sortMode by remember { mutableStateOf(InfluenceSort.TOTAL) }
+    var sortExpanded by remember { mutableStateOf(false) }
+    var typeExpanded by remember { mutableStateOf(false) }
+
+    var sortAscending by remember { mutableStateOf(false) }
+
+// Insight Lens state
+    var selectedTimeScale by remember { mutableStateOf(TimeScale.ALL_TIME) }
+
+    var selectedType by remember { mutableStateOf<String?>(null) }
+    var selectedSubType by remember { mutableStateOf<String?>(null) }
+
+
     var selectedInfluence by remember { mutableStateOf<String?>(null) }
     var editingCard by remember { mutableStateOf<InfluenceCardModel?>(null) }
     var editedCardOverride by remember { mutableStateOf<InfluenceCardModel?>(null) }
@@ -85,19 +109,99 @@ fun InfluencesScreen(
         skipPartiallyExpanded = true
     )
 
-
-
-
     LaunchedEffect(Unit) {
-        allTags =
-            LedgerStore
-                .loadTagStats(context)
-                .values
-                .sortedBy { it.tag.lowercase() }
-
         influenceOverrides =
             LedgerStore.loadInfluenceOverrides(context)
     }
+
+
+
+    fun effectiveTypeFor(tag: String): String {
+        val override = influenceOverrides[tag]?.type
+        if (!override.isNullOrBlank()) return override
+
+        // fallback to generated card model type
+        val stats = allTags.firstOrNull { it.tag == tag } ?: return ""
+        return buildInfluenceCardModel(
+            tag = stats.tag,
+            stats = stats,
+            entries = emptyList()
+        ).type.orEmpty()
+    }
+
+
+    fun isEntryInTimeScale(
+        timestamp: Long
+    ): Boolean {
+        if (selectedTimeScale == TimeScale.ALL_TIME) return true
+
+        val entryDate =
+            java.time.Instant
+                .ofEpochMilli(timestamp)
+                .atZone(java.time.ZoneId.systemDefault())
+                .toLocalDate()
+
+        val today = java.time.LocalDate.now()
+
+        return when (selectedTimeScale) {
+            TimeScale.WEEK ->
+                entryDate.isAfter(today.minusDays(7))
+
+            TimeScale.MONTH ->
+                entryDate.month == today.month &&
+                        entryDate.year == today.year
+
+            TimeScale.YEAR ->
+                entryDate.year == today.year
+
+            TimeScale.ALL_TIME -> true
+        }
+    }
+
+
+    LaunchedEffect(selectedTimeScale) {
+
+        if (selectedTimeScale == TimeScale.ALL_TIME) {
+            allTags =
+                LedgerStore
+                    .loadTagStats(context)
+                    .values
+                    .sortedBy { it.tag.lowercase() }
+            return@LaunchedEffect
+        }
+
+        val days =
+            LedgerStore.loadDaysWithEntries(context)
+
+        val stats = mutableMapOf<String, Pair<Int, Float>>() // count, totalDelta
+
+        days.forEach { dayKey ->
+            val entries =
+                LedgerStore.loadEntriesForDay(context, dayKey)
+
+            entries
+                .filter { isEntryInTimeScale(it.timestamp) }
+                .forEach { entry ->
+                    entry.tags.forEach { tag ->
+                        val (count, total) =
+                            stats[tag] ?: (0 to 0f)
+
+                        stats[tag] =
+                            (count + 1) to (total + entry.delta)
+                    }
+                }
+        }
+
+        allTags =
+            stats.map { (tag, pair) ->
+                TagStats(
+                    tag = tag,
+                    count = pair.first,
+                    totalDelta = pair.second
+                )
+            }.sortedBy { it.tag.lowercase() }
+    }
+
 
 
     LaunchedEffect(selectedInfluence) {
@@ -149,125 +253,248 @@ fun InfluencesScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            AssistChip(
-                onClick = {
-                    if (sortMode == InfluenceSort.AZ) {
-                        sortAscending = !sortAscending
-                    } else {
-                        sortMode = InfluenceSort.AZ
-                        sortAscending = true   // A → Z default
-                    }
-                },
-                label = { Text("A–Z") },
+        // ───────────────── Insight Lens Header ─────────────────
 
-                colors =
-                    if (sortMode == InfluenceSort.AZ)
-                        AssistChipDefaults.assistChipColors(
-                            containerColor = LedgerGold,
-                            labelColor = Color.Black
-                        )
-                    else
-                        AssistChipDefaults.assistChipColors()
-            )
-
-            AssistChip(
-                onClick = {
-                    if (sortMode == InfluenceSort.COUNT) {
-                        sortAscending = !sortAscending
-                    } else {
-                        sortMode = InfluenceSort.COUNT
-                        sortAscending = false  // high → low default
-                    }
-                },
-                label = { Text("Count") },
-
-                colors =
-                    if (sortMode == InfluenceSort.COUNT)
-                        AssistChipDefaults.assistChipColors(
-                            containerColor = LedgerGold,
-                            labelColor = Color.Black
-                        )
-                    else
-                        AssistChipDefaults.assistChipColors()
-            )
-
-
-            AssistChip(
-                onClick = {
-                    if (sortMode == InfluenceSort.INTENSITY) {
-                        sortAscending = !sortAscending
-                    } else {
-                        sortMode = InfluenceSort.INTENSITY
-                        sortAscending = false  // strongest first default
-                    }
-                },
-                label = { Text("Intensity") },
-
-                colors =
-                if (sortMode == InfluenceSort.INTENSITY)
-                    AssistChipDefaults.assistChipColors(
-                        containerColor = LedgerGold,
-                        labelColor = Color.Black
-                    )
-                else
-                    AssistChipDefaults.assistChipColors()
+        Text(
+            text = "Showing ${selectedType ?: "All"} · ${selectedTimeScale.name.lowercase().replaceFirstChar { it.uppercase() }} · ${sortMode.displayName()}",
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.65f)
         )
 
-            AssistChip(
-                onClick = {
-                    if (sortMode == InfluenceSort.TOTAL) {
-                        sortAscending = !sortAscending
-                    } else {
-                        sortMode = InfluenceSort.TOTAL
-                        sortAscending = false // highest impact first
-                    }
-                },
-                label = { Text("Total") },
-
-                colors =
-                    if (sortMode == InfluenceSort.TOTAL)
-                        AssistChipDefaults.assistChipColors(
-                            containerColor = LedgerGold,
-                            labelColor = Color.Black
-                        )
-                    else
-                        AssistChipDefaults.assistChipColors()
-            )
-
-        }
         Spacer(Modifier.height(12.dp))
+
+// Time Scale
+        SingleChoiceSegmentedButtonRow {
+            TimeScale.values().forEachIndexed { index, scale ->
+                SegmentedButton(
+                    selected = selectedTimeScale == scale,
+                    onClick = { selectedTimeScale = scale },
+                    shape = SegmentedButtonDefaults.itemShape(
+                        index = index,
+                        count = TimeScale.values().size
+                    ),
+                    label = {
+                        Text(
+                            when (scale) {
+                                TimeScale.ALL_TIME -> "All-Time"
+                                TimeScale.WEEK -> "Week"
+                                TimeScale.MONTH -> "Month"
+                                TimeScale.YEAR -> "Year"
+                            }
+                        )
+                    }
+
+                )
+            }
+        }
+
+
+        Spacer(Modifier.height(12.dp))
+
+// Collect used types with counts (based on visible tags)
+        val availableTypesWithCounts: Map<String, Int> =
+            remember(allTags, influenceOverrides) {
+                allTags
+                    .mapNotNull { stat ->
+                        effectiveTypeFor(stat.tag).takeIf { it.isNotBlank() }
+                    }
+                    .groupingBy { it }
+                    .eachCount()
+                    .toSortedMap(compareBy { it.lowercase() })
+            }
+
+// Collect sub-types for the selected type (with counts)
+        val availableSubTypesWithCounts: Map<String, Int> =
+            remember(allTags, influenceOverrides, selectedType) {
+                if (selectedType == null) emptyMap()
+                else
+                    allTags
+                        .mapNotNull { stat ->
+                            val override = influenceOverrides[stat.tag]
+                            if (override?.type.equals(selectedType, ignoreCase = true))
+                                override?.subType?.trim()
+                            else null
+                        }
+                        .filter { it.isNotBlank() }
+                        .groupingBy { it }
+                        .eachCount()
+                        .toSortedMap(compareBy { it.lowercase() })
+            }
+
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+
+            // ── Type ───────────────────────────────
+            Box(modifier = Modifier.weight(1f)) {
+                AssistChip(
+                    onClick = { typeExpanded = true },
+                    label = {
+                        val count =
+                            selectedType?.let { availableTypesWithCounts[it] }
+
+                        Text(
+                            if (selectedType == null)
+                                "Type: All"
+                            else
+                                "Type: $selectedType ($count)"
+                        )
+                    }
+                )
+
+                DropdownMenu(
+                    expanded = typeExpanded,
+                    onDismissRequest = { typeExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("All") },
+                        onClick = {
+                            selectedType = null
+                            selectedSubType = null
+                            typeExpanded = false
+                        }
+                    )
+
+                    if (availableTypesWithCounts.isNotEmpty()) {
+                        Divider()
+
+                        availableTypesWithCounts.forEach { (type, count) ->
+                            DropdownMenuItem(
+                                text = { Text("$type ($count)") },
+                                onClick = {
+                                    selectedType = type
+                                    selectedSubType = null
+                                    typeExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── Sub-type ───────────────────────────
+            Box(modifier = Modifier.weight(1f)) {
+
+                var subTypeExpanded by remember { mutableStateOf(false) }
+
+                AssistChip(
+                    onClick = {
+                        if (selectedType != null) {
+                            subTypeExpanded = true
+                        }
+                    },
+                    enabled = selectedType != null,
+                    label = {
+                        val count =
+                            selectedSubType?.let { availableSubTypesWithCounts[it] }
+
+                        Text(
+                            when {
+                                selectedType == null ->
+                                    "Sub-type: —"
+                                selectedSubType == null ->
+                                    "Sub-type: All"
+                                else ->
+                                    "Sub-type: $selectedSubType ($count)"
+                            }
+                        )
+                    }
+                )
+
+                DropdownMenu(
+                    expanded = subTypeExpanded,
+                    onDismissRequest = { subTypeExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("All") },
+                        onClick = {
+                            selectedSubType = null
+                            subTypeExpanded = false
+                        }
+                    )
+
+                    if (availableSubTypesWithCounts.isNotEmpty()) {
+                        Divider()
+
+                        availableSubTypesWithCounts.forEach { (subType, count) ->
+                            DropdownMenuItem(
+                                text = { Text("$subType ($count)") },
+                                onClick = {
+                                    selectedSubType = subType
+                                    subTypeExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+
+// Sub-type filter (appears only when Type is selected)
+
+
+
+
+
+
+
+
+        Spacer(Modifier.height(12.dp))
+
+
+
+
+
+
+
+        val filteredTags =
+            allTags.filter { stat ->
+                val matchesType =
+                    selectedType == null ||
+                            effectiveTypeFor(stat.tag)
+                                .equals(selectedType, ignoreCase = true)
+
+                val matchesSubType =
+                    selectedSubType == null ||
+                            influenceOverrides[stat.tag]?.subType
+                                ?.equals(selectedSubType, ignoreCase = true) == true
+
+                matchesType && matchesSubType
+            }
 
 
         val visibleTags =
             when (sortMode) {
                 InfluenceSort.AZ ->
                     if (sortAscending)
-                        allTags.sortedBy { it.tag.lowercase() }
+                        filteredTags.sortedBy { it.tag.lowercase() }
                     else
-                        allTags.sortedByDescending { it.tag.lowercase() }
+                        filteredTags.sortedByDescending { it.tag.lowercase() }
 
                 InfluenceSort.COUNT ->
                     if (sortAscending)
-                        allTags.sortedBy { it.count }
+                        filteredTags.sortedBy { it.count }
                     else
-                        allTags.sortedByDescending { it.count }
+                        filteredTags.sortedByDescending { it.count }
 
                 InfluenceSort.INTENSITY ->
                     if (sortAscending)
-                        allTags.sortedBy { kotlin.math.abs(it.average) }
+                        filteredTags.sortedBy { kotlin.math.abs(it.average) }
                     else
-                        allTags.sortedByDescending { kotlin.math.abs(it.average) }
+                        filteredTags.sortedByDescending { kotlin.math.abs(it.average) }
 
                 InfluenceSort.TOTAL ->
                     if (sortAscending)
-                        allTags.sortedBy { it.count * kotlin.math.abs(it.average) }
+                        filteredTags.sortedBy { it.count * kotlin.math.abs(it.average) }
                     else
-                        allTags.sortedByDescending { it.count * kotlin.math.abs(it.average) }
-
+                        filteredTags.sortedByDescending { it.count * kotlin.math.abs(it.average) }
             }
+
 
 
 
@@ -281,16 +508,121 @@ fun InfluencesScreen(
                 )
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
+            // ── Sortable Column Headers ─────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                // Alphabetical: A→Z = primary (Gold)
+                fun alphaHeaderColor(isActive: Boolean): Color =
+                    if (!isActive) sortInactiveColor
+                    else if (sortAscending) sortPrimaryColor
+                    else sortReverseColor
+
+                // Numeric: Most→Least = primary (Gold)
+                fun numericHeaderColor(isActive: Boolean): Color =
+                    if (!isActive) sortInactiveColor
+                    else if (!sortAscending) sortPrimaryColor
+                    else sortReverseColor
+
+
+                // Influence name (A–Z / Z–A)
+                Text(
+                    text = "Influence",
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            if (sortMode == InfluenceSort.AZ) {
+                                sortAscending = !sortAscending
+                            } else {
+                                sortMode = InfluenceSort.AZ
+                                sortAscending = true // A → Z
+                            }
+                        },
+                    color = alphaHeaderColor(sortMode == InfluenceSort.AZ),
+
+                    fontWeight = FontWeight.Medium
+                )
+
+                // Count
+                Text(
+                    text = "#",
+                    modifier = Modifier
+                        .width(24.dp)
+                        .clickable {
+                            if (sortMode == InfluenceSort.COUNT) {
+                                sortAscending = !sortAscending
+                            } else {
+                                sortMode = InfluenceSort.COUNT
+                                sortAscending = false // Most → Least
+                            }
+                        },
+                    color = numericHeaderColor(sortMode == InfluenceSort.COUNT),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    fontWeight = FontWeight.Medium
+                )
+
+                Spacer(Modifier.width(12.dp))
+
+                // Average impact
+                Text(
+                    text = "Avg",
+                    modifier = Modifier
+                        .width(56.dp)
+                        .clickable {
+                            if (sortMode == InfluenceSort.INTENSITY) {
+                                sortAscending = !sortAscending
+                            } else {
+                                sortMode = InfluenceSort.INTENSITY
+                                sortAscending = false
+                            }
+                        },
+                    color = numericHeaderColor(sortMode == InfluenceSort.INTENSITY),
+
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    fontWeight = FontWeight.Medium
+                )
+
+                Spacer(Modifier.width(8.dp))
+
+                // Total impact
+                Text(
+                    text = "Total",
+                    modifier = Modifier
+                        .width(64.dp)
+                        .clickable {
+                            if (sortMode == InfluenceSort.TOTAL) {
+                                sortAscending = !sortAscending
+                            } else {
+                                sortMode = InfluenceSort.TOTAL
+                                sortAscending = false
+                            }
+                        },
+                    color = numericHeaderColor(sortMode == InfluenceSort.TOTAL),
+
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+
+
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(top = 32.dp) // ⬅ reserves space for column headers
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
 
 
 
-                visibleTags.forEach { stat ->
+
+            visibleTags.forEach { stat ->
 
 
                     Row(
@@ -604,6 +936,8 @@ fun InfluenceEditSheet(
 
     var type by remember { mutableStateOf(card.type) }
     var hasEditedType by remember { mutableStateOf(false) }
+    var typeExpanded by remember { mutableStateOf(false) }
+
 
     var subType by remember { mutableStateOf(card.subType ?: "") }
 
@@ -618,16 +952,16 @@ fun InfluenceEditSheet(
                 }
     }
 
-    val availableTypes =
+    val availableTypes: List<String> =
         remember(allOverrides) {
-            (INFLUENCE_TYPES +
-                    allOverrides.values
-                        .mapNotNull { it.type }
-                        .map { normalizeCategory(it) }
-                    )
+            allOverrides.values
+                .mapNotNull { it.type }
+                .map { normalizeCategory(it) }
+                .filter { it.isNotBlank() }
                 .distinct()
                 .sorted()
         }
+
 
 
     val typeSuggestions =
@@ -693,7 +1027,7 @@ fun InfluenceEditSheet(
 
 
 
-        var typeExpanded by remember { mutableStateOf(false) }
+
         var showNewTypeDialog by remember { mutableStateOf(false) }
         var newTypeText by remember { mutableStateOf("") }
 
