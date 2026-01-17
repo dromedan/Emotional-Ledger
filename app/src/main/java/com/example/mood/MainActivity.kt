@@ -106,6 +106,9 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.filled.ShowChart
 import com.example.mood.ui.InfluencesScreen
 import com.example.mood.ui.TestCardScreen
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.layout.onSizeChanged
 
 
 
@@ -1259,6 +1262,8 @@ fun TodayScreen() {
 
 
 
+    val density = LocalDensity.current
+    var frozenSealSize by remember { mutableStateOf<IntSize?>(null) }
 
     var isObsidianConnected by remember { mutableStateOf(false) }
     var obsidianFolderUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -1402,7 +1407,7 @@ fun TodayScreen() {
                     start = 24.dp,
                     end = 24.dp,
                     top = 0.dp,   // reduced because statusBars already adds space
-                    bottom = 356.dp
+                    bottom = 0.dp
                 ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -1589,7 +1594,63 @@ fun TodayScreen() {
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            // --- Seal slot (centered between entries and footer) ---
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(bottom = 120.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                DailyMoodSeal(
+                    mood = finalScore,
+                    baseline = baseline,
+                    drift = if (reflectionScore != null) drift else null,
+                    entries = entries,
+                    dayKey = activeDayKey,
+                    isObsidianConnected = isObsidianConnected,
+                    onCenterTap = {
+                        trendsWeekStart = activeWeekStart
+                        showTrends = true
+                    },
+                    onExportTap = {
+                        val folder = obsidianFolderUri
+                        if (folder != null) {
+                            writeDayMarkdown(
+                                context = context,
+                                folderUri = folder,
+                                dayKey = activeDayKey,
+                                entriesForDay = entries,
+                                reflectionText = reflectionText,
+                                finalScore = finalScore
+                            )
+                        }
+                    },
+                    modifier = Modifier.then(
+                        run {
+                            val frozen = frozenSealSize
+                            if (frozen == null) {
+                                Modifier
+                                    .size(200.dp) // 👈 smaller, explicit initial size
+                                    .onSizeChanged { size: IntSize ->
+                                        if (frozenSealSize == null) {
+                                            frozenSealSize = size
+                                        }
+                                    }
+                            }
+                            else {
+                                with(density) {
+                                    Modifier.size(
+                                        frozen.width.toDp(),
+                                        frozen.height.toDp()
+                                    )
+                                }
+                            }
+                        }
+                    )
+                )
+            }
+
 
 
 
@@ -1602,45 +1663,7 @@ fun TodayScreen() {
             else
                 emptyList()
 
-        DailyMoodSeal(
-            mood = finalScore,
-            baseline = baseline,
-            drift = if (reflectionScore != null) drift else null,
-            entries = entries,
-            dayKey = activeDayKey,
-            isObsidianConnected = isObsidianConnected,
-            onCenterTap = {
-                trendsWeekStart = activeWeekStart
-                showTrends = true
-            },
-            onExportTap = {
-                val folder = obsidianFolderUri
-                if (folder != null) {
-                    writeDayMarkdown(
-                        context = context,
-                        folderUri = folder,
-                        dayKey = activeDayKey,
-                        entriesForDay = entries,
-                        reflectionText = reflectionText,
-                        finalScore = finalScore
-                    )
 
-                } else {
-                    android.util.Log.w(
-                        "Obsidian",
-                        "Export tapped but no folder selected"
-                    )
-                }
-            },
-
-
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(240.dp)
-                .aspectRatio(1f)
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 210.dp)
-        )
 
 
 

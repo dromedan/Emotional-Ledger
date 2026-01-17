@@ -25,10 +25,6 @@ import androidx.compose.ui.text.font.FontWeight
 import com.example.mood.deltaColor
 import androidx.compose.foundation.clickable
 import com.example.mood.model.InfluenceCardModel
-import com.example.mood.model.CardPolarity
-import com.example.mood.model.CardRank
-import com.example.mood.ui.buildInfluenceCardModel
-import com.example.mood.ui.InfluenceGeneratedCard
 import com.example.mood.model.InfluenceOverride
 import kotlinx.coroutines.launch
 import android.net.Uri
