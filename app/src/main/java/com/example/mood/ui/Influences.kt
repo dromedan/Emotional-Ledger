@@ -80,13 +80,9 @@ fun InfluencesScreen(
     val sortInactiveColor = Color.White.copy(alpha = 0.65f)
     val sortPrimaryColor = LedgerGold          // Most → Least / A → Z
     val sortReverseColor = Color(0xFF2EC4B6)   // Teal
-
-
     var allTags by remember { mutableStateOf<List<TagStats>>(emptyList()) }
     var sortMode by remember { mutableStateOf(InfluenceSort.TOTAL) }
-    var sortExpanded by remember { mutableStateOf(false) }
     var typeExpanded by remember { mutableStateOf(false) }
-
     var sortAscending by remember { mutableStateOf(false) }
 
 // Insight Lens state
@@ -98,20 +94,15 @@ fun InfluencesScreen(
 
     var selectedInfluence by remember { mutableStateOf<String?>(null) }
     var editingCard by remember { mutableStateOf<InfluenceCardModel?>(null) }
-    var editedCardOverride by remember { mutableStateOf<InfluenceCardModel?>(null) }
     var influenceEntries by remember { mutableStateOf(emptyList<com.example.mood.model.LedgerEntry>()) }
     var expandedEntryId by remember { mutableStateOf<Long?>(null) }
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true
     )
-
     LaunchedEffect(Unit) {
         influenceOverrides =
             LedgerStore.loadInfluenceOverrides(context)
     }
-
-
-
     fun effectiveTypeFor(tag: String): String {
         val override = influenceOverrides[tag]?.type
         if (!override.isNullOrBlank()) return override
@@ -124,7 +115,6 @@ fun InfluencesScreen(
             entries = emptyList()
         ).type.orEmpty()
     }
-
 
     fun isEntryInTimeScale(
         timestamp: Long
@@ -153,7 +143,6 @@ fun InfluencesScreen(
             TimeScale.ALL_TIME -> true
         }
     }
-
 
     LaunchedEffect(selectedTimeScale) {
 
@@ -197,8 +186,6 @@ fun InfluencesScreen(
                 )
             }.sortedBy { it.tag.lowercase() }
     }
-
-
 
     LaunchedEffect(selectedInfluence) {
         val tag = selectedInfluence ?: return@LaunchedEffect
@@ -430,23 +417,7 @@ fun InfluencesScreen(
 
         Spacer(Modifier.height(12.dp))
 
-
-// Sub-type filter (appears only when Type is selected)
-
-
-
-
-
-
-
-
         Spacer(Modifier.height(12.dp))
-
-
-
-
-
-
 
         val filteredTags =
             allTags.filter { stat ->
@@ -490,9 +461,6 @@ fun InfluencesScreen(
                     else
                         filteredTags.sortedByDescending { it.count * kotlin.math.abs(it.average) }
             }
-
-
-
 
         Box(
             modifier = Modifier
@@ -604,9 +572,6 @@ fun InfluencesScreen(
                 )
             }
 
-
-
-
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -615,11 +580,7 @@ fun InfluencesScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
 
-
-
-
             visibleTags.forEach { stat ->
-
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -644,10 +605,6 @@ fun InfluencesScreen(
                             color = deltaColor(stat.average),
                             style = MaterialTheme.typography.bodyMedium
                         )
-
-
-
-
 
                         Text(
                             text = stat.count.toString(),
@@ -676,10 +633,6 @@ fun InfluencesScreen(
                             textAlign = androidx.compose.ui.text.style.TextAlign.End,
                             fontWeight = FontWeight.ExtraBold
                         )
-
-
-
-
                     }
                 }
             }
@@ -713,11 +666,6 @@ fun InfluencesScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
 
-
-
-
-
-
             val tagStats =
                 allTags.firstOrNull { it.tag == selectedInfluence }
 
@@ -741,9 +689,6 @@ fun InfluencesScreen(
                         imagePath = override?.imagePath ?: generatedCard.imagePath
                     )
 
-
-
-
                 Box(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center
@@ -754,16 +699,9 @@ fun InfluencesScreen(
                             editingCard = card
                         }
                     )
-
-
                 }
-
-
                 Spacer(Modifier.height(12.dp))
             }
-
-
-
 
             Spacer(Modifier.height(8.dp))
 
@@ -869,7 +807,6 @@ fun InfluencesScreen(
                         }
                     }
 
-
                     val override = InfluenceOverride(
                         tag = newName,
                         type = normalizeCategory(updated.type),
@@ -879,9 +816,6 @@ fun InfluencesScreen(
                         imagePath = updated.imagePath
                     )
 
-
-
-
                     scope.launch {
                         LedgerStore.saveInfluenceOverride(context, override)
                         influenceOverrides =
@@ -889,18 +823,12 @@ fun InfluencesScreen(
 
                     }
 
-
-
                     editingCard = null
                     selectedInfluence = null
-
-
 
                 }
 
             )
-
-
 
         }
     }
@@ -913,9 +841,6 @@ private fun normalizeCategory(input: String?): String {
         ?.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
         ?: ""
 }
-
-
-
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -958,8 +883,6 @@ fun InfluenceEditSheet(
                 .sorted()
         }
 
-
-
     val typeSuggestions =
         allOverrides.values
             .mapNotNull { it.type }
@@ -975,10 +898,6 @@ fun InfluenceEditSheet(
                 .sorted()
         }
 
-
-
-
-    var subTypeExpanded by remember { mutableStateOf(false) }
     var showNewSubTypeDialog by remember { mutableStateOf(false) }
     var newSubTypeText by remember { mutableStateOf("") }
 
@@ -1021,12 +940,8 @@ fun InfluenceEditSheet(
             singleLine = true
         )
 
-
-
-
         var showNewTypeDialog by remember { mutableStateOf(false) }
         var newTypeText by remember { mutableStateOf("") }
-
 
         Box(
             modifier = Modifier
@@ -1041,8 +956,6 @@ fun InfluenceEditSheet(
                 label = { Text("Type") },
                 modifier = Modifier.fillMaxWidth()
             )
-
-
 
             DropdownMenu(
                 expanded = typeExpanded,
@@ -1083,7 +996,6 @@ fun InfluenceEditSheet(
 
             }
         }
-
 
         var subTypeExpanded by remember { mutableStateOf(false) }
 
@@ -1175,10 +1087,6 @@ fun InfluenceEditSheet(
             )
         }
 
-
-
-
-
         OutlinedTextField(
             value = description,
             onValueChange = { description = it },
@@ -1226,11 +1134,7 @@ fun InfluenceEditSheet(
             }
         }
 
-
-
         Spacer(Modifier.height(8.dp))
-
-
 
         if (showNewTypeDialog) {
             AlertDialog(
